@@ -1,10 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../../models/notification_item.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/order.dart';
 import '../../services/firebase_service.dart';
-import '../../services/notification_store.dart';
 import '../../services/settings_store.dart';
 import '../../theme/app_theme.dart';
 
@@ -16,204 +15,32 @@ class OrdersScreen extends StatefulWidget {
 }
 
 class _OrdersScreenState extends State<OrdersScreen> {
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
   final FirebaseService _firebase = FirebaseService();
   OrderStatus? _filter;
 
   Color _statusColor(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
-        return AppColors.accentOrange;
+        return sari.warning;
       case OrderStatus.ready:
-        return AppColors.accentBlue;
+        return sari.info;
       case OrderStatus.done:
-        return AppColors.mintIcon;
+        return sari.success;
     }
   }
 
-  String _statusFirestoreValue(OrderStatus status) {
+  String _statusLabel(OrderStatus status) {
     switch (status) {
       case OrderStatus.pending:
-        return 'pending';
+        return context.l10n.text('statusPending');
       case OrderStatus.ready:
-        return 'ready';
+        return context.l10n.text('statusReady');
       case OrderStatus.done:
-        return 'completed';
+        return context.l10n.text('statusDone');
     }
-  }
-
-  Future<void> _showAddOrderDialog() async {
-    final customerController = TextEditingController();
-    final totalController = TextEditingController();
-    final itemsController = TextEditingController(text: '1');
-    final noteController = TextEditingController();
-    var payment = 'Cash';
-    var status = OrderStatus.done;
-    var saving = false;
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppColors.darkGreenMid,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              title: const Text(
-                'Add Order',
-                style: TextStyle(
-                  color: AppColors.textWhite,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: customerController,
-                      style: const TextStyle(color: AppColors.textWhite),
-                      decoration: const InputDecoration(
-                        labelText: 'Customer name',
-                        hintText: 'Walk-in',
-                      ),
-                    ),
-                    TextField(
-                      controller: totalController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      style: const TextStyle(color: AppColors.textWhite),
-                      decoration: InputDecoration(
-                        labelText:
-                            'Total (${SettingsStore.instance.currencySymbol})',
-                      ),
-                    ),
-                    TextField(
-                      controller: itemsController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(color: AppColors.textWhite),
-                      decoration:
-                          const InputDecoration(labelText: 'Item count'),
-                    ),
-                    TextField(
-                      controller: noteController,
-                      style: const TextStyle(color: AppColors.textWhite),
-                      decoration: const InputDecoration(
-                        labelText: 'Note / item description (optional)',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: payment,
-                      dropdownColor: AppColors.darkGreenMid,
-                      style: const TextStyle(color: AppColors.textWhite),
-                      decoration:
-                          const InputDecoration(labelText: 'Payment method'),
-                      items: const [
-                        DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                        DropdownMenuItem(value: 'GCash', child: Text('GCash')),
-                        DropdownMenuItem(
-                            value: 'Credit / Utang',
-                            child: Text('Credit / Utang')),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setDialogState(() => payment = v);
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<OrderStatus>(
-                      initialValue: status,
-                      dropdownColor: AppColors.darkGreenMid,
-                      style: const TextStyle(color: AppColors.textWhite),
-                      decoration: const InputDecoration(labelText: 'Status'),
-                      items: OrderStatus.values
-                          .map(
-                            (s) => DropdownMenuItem(
-                              value: s,
-                              child: Text(s.label),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setDialogState(() => status = v);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving ? null : () => Navigator.pop(ctx),
-                  child: const Text('Cancel',
-                      style: TextStyle(color: AppColors.textMuted)),
-                ),
-                ElevatedButton(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          final total =
-                              double.tryParse(totalController.text.trim());
-                          final count =
-                              int.tryParse(itemsController.text.trim()) ?? 1;
-                          if (total == null || total < 0) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Enter a valid total amount.')),
-                            );
-                            return;
-                          }
-                          setDialogState(() => saving = true);
-                          try {
-                            final orderId = await _firebase.createManualOrder(
-                              customerName: customerController.text.trim(),
-                              totalAmount: total,
-                              itemCount: count <= 0 ? 1 : count,
-                              paymentMethod: payment,
-                              status: _statusFirestoreValue(status),
-                              userId: FirebaseAuth.instance.currentUser?.uid,
-                              note: noteController.text.trim(),
-                            );
-                            await NotificationStore.instance.add(
-                              title: 'Order added',
-                              subtitle:
-                                  'Manual order ${orderId.substring(0, 8)}… saved.',
-                              type: NotificationType.orderReady,
-                            );
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Order added successfully.')),
-                              );
-                            }
-                          } catch (e) {
-                            setDialogState(() => saving = false);
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Failed: $e'),
-                                  backgroundColor: AppColors.accentRed,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                  child: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
   }
 
   @override
@@ -222,8 +49,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
     return Scaffold(
       body: Container(
-        decoration:
-            const BoxDecoration(gradient: AppColors.darkBackgroundGradient),
+        decoration: BoxDecoration(gradient: sari.screenGradient),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -234,27 +60,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_back,
-                          color: AppColors.textWhite),
+                      icon: Icon(Icons.arrow_back, color: scheme.onSurface),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'Orders',
+                        context.l10n.text('orders'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: AppColors.textWhite,
+                          color: scheme.onSurface,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Add Order',
-                      onPressed: _showAddOrderDialog,
-                      icon: const Icon(Icons.add_circle_outline,
-                          color: AppColors.accentOrange),
-                    ),
+                    const SizedBox(width: 48),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -263,13 +83,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     children: [
-                      _filterChip('All', null),
+                      _filterChip(context.l10n.text('filterAll'), null),
                       const SizedBox(width: 8),
-                      _filterChip('Pending', OrderStatus.pending),
+                      _filterChip(_statusLabel(OrderStatus.pending),
+                          OrderStatus.pending),
                       const SizedBox(width: 8),
-                      _filterChip('Ready', OrderStatus.ready),
+                      _filterChip(
+                          _statusLabel(OrderStatus.ready), OrderStatus.ready),
                       const SizedBox(width: 8),
-                      _filterChip('Done', OrderStatus.done),
+                      _filterChip(
+                          _statusLabel(OrderStatus.done), OrderStatus.done),
                     ],
                   ),
                 ),
@@ -287,18 +110,20 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           if (snapshot.connectionState ==
                                   ConnectionState.waiting &&
                               !snapshot.hasData) {
-                            return const Center(
+                            return Center(
                               child: CircularProgressIndicator(
-                                  color: AppColors.mintIcon),
+                                  color: sari.success),
                             );
                           }
 
                           if (snapshot.hasError) {
                             return Center(
                               child: Text(
-                                'May error: ${snapshot.error}',
-                                style: const TextStyle(
-                                    color: AppColors.textMuted),
+                                context.l10n.text(
+                                  'couldNotLoadOrders',
+                                  values: {'error': '${snapshot.error}'},
+                                ),
+                                style: TextStyle(color: sari.mutedText),
                                 textAlign: TextAlign.center,
                               ),
                             );
@@ -309,8 +134,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                     doc.id,
                                     doc.data() as Map<String, dynamic>,
                                   ))
-                              .where((o) =>
-                                  _filter == null || o.status == _filter)
+                              .where(
+                                  (o) => _filter == null || o.status == _filter)
                               .toList()
                             ..sort((a, b) {
                               final aTime = a.createdAt ??
@@ -328,21 +153,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                   Icon(
                                     Icons.receipt_long_outlined,
                                     size: 48,
-                                    color: AppColors.mintIcon
-                                        .withValues(alpha: 0.4),
+                                    color: sari.success.withValues(alpha: 0.4),
                                   ),
                                   const SizedBox(height: 12),
-                                  const Text(
-                                    'No orders found',
+                                  Text(
+                                    context.l10n.text('noOrdersFound'),
                                     style: TextStyle(
-                                      color: AppColors.textMuted,
+                                      color: sari.mutedText,
                                       fontSize: 14,
                                     ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextButton(
-                                    onPressed: _showAddOrderDialog,
-                                    child: const Text('Add your first order'),
                                   ),
                                 ],
                               ),
@@ -361,13 +180,18 @@ class _OrdersScreenState extends State<OrdersScreen> {
                               return Container(
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: AppColors.fieldGreen
-                                      .withValues(alpha: 0.25),
-                                  borderRadius: BorderRadius.circular(16),
+                                  color: sari.cardSurface,
+                                  borderRadius: BorderRadius.circular(18),
                                   border: Border.all(
-                                    color: AppColors.mintIcon
-                                        .withValues(alpha: 0.25),
+                                    color: sari.cardBorder,
                                   ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: sari.shadow,
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -381,8 +205,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                             o.id,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: AppColors.textFaint,
+                                            style: TextStyle(
+                                              color: sari.faintText,
                                               fontSize: 12,
                                             ),
                                           ),
@@ -400,7 +224,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                                 BorderRadius.circular(20),
                                           ),
                                           child: Text(
-                                            o.status.label,
+                                            _statusLabel(o.status),
                                             style: TextStyle(
                                               color: statusColor,
                                               fontSize: 11,
@@ -413,8 +237,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                     const SizedBox(height: 6),
                                     Text(
                                       o.customerName,
-                                      style: const TextStyle(
-                                        color: AppColors.textWhite,
+                                      style: TextStyle(
+                                        color: scheme.onSurface,
                                         fontSize: 15,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -423,8 +247,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       const SizedBox(height: 4),
                                       Text(
                                         o.paymentMethod,
-                                        style: const TextStyle(
-                                          color: AppColors.textFaint,
+                                        style: TextStyle(
+                                          color: sari.faintText,
                                           fontSize: 12,
                                         ),
                                       ),
@@ -436,15 +260,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       children: [
                                         Text(
                                           '${o.itemCount} item${o.itemCount == 1 ? '' : 's'}',
-                                          style: const TextStyle(
-                                            color: AppColors.textMuted,
+                                          style: TextStyle(
+                                            color: sari.mutedText,
                                             fontSize: 13,
                                           ),
                                         ),
                                         Text(
                                           settings.formatMoney(o.total),
-                                          style: const TextStyle(
-                                            color: AppColors.accentOrange,
+                                          style: TextStyle(
+                                            color: sari.warning,
                                             fontSize: 14,
                                             fontWeight: FontWeight.bold,
                                           ),
@@ -475,15 +299,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
       label: Text(label),
       selected: selected,
       onSelected: (_) => setState(() => _filter = status),
-      selectedColor: AppColors.accentOrange,
-      backgroundColor: AppColors.fieldGreen.withValues(alpha: 0.35),
+      selectedColor: sari.warning,
+      backgroundColor: sari.fieldFill.withValues(alpha: 0.35),
       shape: StadiumBorder(
         side: BorderSide(
-          color: AppColors.mintIcon.withValues(alpha: 0.4),
+          color: sari.success.withValues(alpha: 0.4),
         ),
       ),
       labelStyle: TextStyle(
-        color: selected ? AppColors.darkGreenTop : AppColors.textMuted,
+        color: selected ? sari.onAccentAmber : sari.mutedText,
         fontWeight: FontWeight.w600,
         fontSize: 12,
       ),
