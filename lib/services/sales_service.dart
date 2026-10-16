@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'firebase_service.dart';
 import 'notification_store.dart';
+import 'settings_store.dart';
 
 /// Sales / checkout. Primary write goes to Firestore `orders/{orderId}`
 /// (shared with the PHP web app). Credits are written to Firestore first
@@ -44,32 +45,51 @@ class SalesService {
       'recordSale items=${items.length} total=$totalAmount method=$paymentMethod',
     );
 
+    final isCredit =
+        paymentMethod == 'Credit / Utang' && customerName.trim().isNotEmpty;
+    final creditDate = DateFormat(
+      'MMM d, yyyy',
+      SettingsStore.instance.languageCode,
+    ).format(DateTime.now());
+
+    final creditItems = items
+        .map((item) {
+          final qty = (item['quantity'] as num?)?.toInt() ?? 0;
+          final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+          final productId = (item['inventoryId'] ??
+                  item['catalogProductId'] ??
+                  item['id'] ??
+                  item['barcode'] ??
+                  '')
+              .toString();
+          return <String, dynamic>{
+            'id': productId,
+            'productId': productId,
+            'name': (item['name'] ?? '').toString(),
+            'quantity': qty,
+            'price': price,
+            'subtotal': price * qty,
+          };
+        })
+        .toList();
+
+    // Order, stock, and credit (when applicable) commit in one Firestore txn.
     final orderId = await _firebase.checkoutOrder(
       items: items,
       totalAmount: totalAmount,
       paymentMethod: paymentMethod,
       customerName: customerName,
       userId: user.uid,
+      credit: isCredit
+          ? {
+              'userId': user.uid,
+              'customerName': customerName.trim(),
+              'amount': totalAmount,
+              'date': creditDate,
+              'items': creditItems,
+            }
+          : null,
     );
-
-    final isCredit = paymentMethod == 'Credit / Utang' &&
-        customerName.trim().isNotEmpty;
-    final creditDate = DateFormat('MMM d, yyyy').format(DateTime.now());
-
-    if (isCredit) {
-      try {
-        await _firebase.addCredit(
-          userId: user.uid,
-          customerName: customerName.trim(),
-          amount: totalAmount,
-          saleId: orderId,
-          date: creditDate,
-        );
-      } catch (e) {
-        _log('Firestore credit write failed', e);
-        rethrow;
-      }
-    }
 
     // Best-effort RTDB mirror for older sales history screens.
     try {
@@ -102,6 +122,7 @@ class SalesService {
           'date': creditDate,
           'isPaid': false,
           'saleId': orderId,
+          'items': creditItems,
         });
       }
       _log('RTDB mirror OK for order $orderId');
@@ -116,6 +137,11 @@ class SalesService {
         orderId: orderId,
         total: totalAmount,
         paymentMethod: paymentMethod,
+        customerName: customerName,
+      );
+      await NotificationStore.instance.addTransactionRecorded(
+        paymentMethod: paymentMethod,
+        total: totalAmount,
         customerName: customerName,
       );
     } catch (e) {

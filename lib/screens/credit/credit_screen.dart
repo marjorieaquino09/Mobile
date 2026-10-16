@@ -1,11 +1,40 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import '../../services/firebase_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../services/notification_store.dart';
 import '../../services/settings_store.dart';
 import '../../theme/app_theme.dart';
+
+class CreditLineItem {
+  final String id;
+  final String name;
+  final int quantity;
+  final double price;
+  final double subtotal;
+
+  const CreditLineItem({
+    required this.id,
+    required this.name,
+    required this.quantity,
+    required this.price,
+    required this.subtotal,
+  });
+
+  factory CreditLineItem.fromMap(Map<String, dynamic> raw) {
+    final qty = (raw['quantity'] as num?)?.toInt() ?? 0;
+    final price = (raw['price'] as num?)?.toDouble() ?? 0.0;
+    final subtotal =
+        (raw['subtotal'] as num?)?.toDouble() ?? (price * qty);
+    return CreditLineItem(
+      id: (raw['id'] ?? raw['productId'] ?? raw['barcode'] ?? '').toString(),
+      name: (raw['name'] ?? '').toString(),
+      quantity: qty,
+      price: price,
+      subtotal: subtotal,
+    );
+  }
+}
 
 class CreditItemModel {
   final String id;
@@ -14,6 +43,7 @@ class CreditItemModel {
   final String date;
   final bool isPaid;
   final DateTime? createdAt;
+  final List<CreditLineItem> items;
 
   CreditItemModel({
     required this.id,
@@ -22,6 +52,7 @@ class CreditItemModel {
     required this.date,
     this.isPaid = false,
     this.createdAt,
+    this.items = const [],
   });
 
   factory CreditItemModel.fromFirestore(
@@ -29,6 +60,17 @@ class CreditItemModel {
   ) {
     final data = doc.data();
     final created = data['createdAt'];
+    final rawItems = data['items'];
+    final items = <CreditLineItem>[];
+    if (rawItems is List) {
+      for (final entry in rawItems) {
+        if (entry is Map) {
+          items.add(
+            CreditLineItem.fromMap(Map<String, dynamic>.from(entry)),
+          );
+        }
+      }
+    }
     return CreditItemModel(
       id: doc.id,
       customerName: (data['customerName'] ?? 'Customer').toString(),
@@ -36,6 +78,7 @@ class CreditItemModel {
       date: (data['date'] ?? '').toString(),
       isPaid: data['isPaid'] == true,
       createdAt: created is Timestamp ? created.toDate() : null,
+      items: items,
     );
   }
 }
@@ -48,8 +91,10 @@ class CreditScreen extends StatefulWidget {
 }
 
 class _CreditScreenState extends State<CreditScreen> {
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final FirebaseService _firebase = FirebaseService();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _overdueChecked = false;
@@ -82,136 +127,6 @@ class _CreditScreenState extends State<CreditScreen> {
     }
   }
 
-  Future<void> _showAddCreditDialog() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to add credit.')),
-      );
-      return;
-    }
-
-    final nameController = TextEditingController();
-    final amountController = TextEditingController();
-    var saving = false;
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppColors.darkGreenMid,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              title: const Text(
-                'Add Credit / Utang',
-                style: TextStyle(
-                  color: AppColors.textWhite,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nameController,
-                    style: const TextStyle(color: AppColors.textWhite),
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(
-                      labelText: 'Customer name',
-                      hintText: 'e.g. Juan Dela Cruz',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: amountController,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: AppColors.textWhite),
-                    decoration: InputDecoration(
-                      labelText:
-                          'Amount (${SettingsStore.instance.currencySymbol})',
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving ? null : () => Navigator.pop(ctx),
-                  child: const Text('Cancel',
-                      style: TextStyle(color: AppColors.textMuted)),
-                ),
-                ElevatedButton(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          final name = nameController.text.trim();
-                          final amount =
-                              double.tryParse(amountController.text.trim());
-                          if (name.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content:
-                                      Text('Enter the customer name.')),
-                            );
-                            return;
-                          }
-                          if (amount == null || amount <= 0) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content:
-                                      Text('Enter a valid amount greater than 0.')),
-                            );
-                            return;
-                          }
-                          setDialogState(() => saving = true);
-                          try {
-                            final today =
-                                DateFormat('yyyy-MM-dd').format(DateTime.now());
-                            await _firebase.addCredit(
-                              userId: user.uid,
-                              customerName: name,
-                              amount: amount,
-                              saleId: 'manual_${DateTime.now().millisecondsSinceEpoch}',
-                              date: today,
-                            );
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content:
-                                        Text('Credit / utang added successfully.')),
-                              );
-                            }
-                          } catch (e) {
-                            setDialogState(() => saving = false);
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Failed: $e'),
-                                  backgroundColor: AppColors.accentRed,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                  child: saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
   // Mark Paid — guarded so already-paid rows cannot double-count transactions.
   Future<void> _markPaid(CreditItemModel credit) async {
     if (credit.isPaid) return;
@@ -219,24 +134,30 @@ class _CreditScreenState extends State<CreditScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkGreenMid,
-        title: const Text(
-          'Mark as paid?',
-          style: TextStyle(color: AppColors.textWhite),
+        backgroundColor: sari.cardSurfaceStrong,
+        title: Text(
+          context.l10n.text('markAsPaidTitle'),
+          style: TextStyle(color: scheme.onSurface),
         ),
         content: Text(
-          'Record payment of ${SettingsStore.instance.formatMoney(credit.amount)} from ${credit.customerName}?',
-          style: const TextStyle(color: AppColors.textMuted),
+          context.l10n.text(
+            'recordPaymentPrompt',
+            values: {
+              'amount': SettingsStore.instance.formatMoney(credit.amount),
+              'customer': credit.customerName,
+            },
+          ),
+          style: TextStyle(color: sari.mutedText),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppColors.textMuted)),
+            child: Text(context.l10n.text('cancel'),
+                style: TextStyle(color: sari.mutedText)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Mark Paid'),
+            child: Text(context.l10n.text('markPaid')),
           ),
         ],
       ),
@@ -252,28 +173,191 @@ class _CreditScreenState extends State<CreditScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      await _db.collection('transactions').add({
-        'userId': user.uid,
-        'payment_method': 'Cash',
-        'customer_name': credit.customerName,
-        'total_amount': credit.amount,
-        'created_at': FieldValue.serverTimestamp(),
-      });
+      // Optional analytics row — not covered by firestore.rules; never fail
+      // the mark-paid flow if this write is denied.
+      try {
+        await _db.collection('transactions').add({
+          'userId': user.uid,
+          'payment_method': 'Cash',
+          'customer_name': credit.customerName,
+          'total_amount': credit.amount,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {}
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Credit marked as paid successfully!')),
+          SnackBar(content: Text(context.l10n.text('creditPaidSuccess'))),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Error: $e'),
-              backgroundColor: AppColors.accentRed),
+              content: Text(context.l10n.text(
+                'failed',
+                values: {'error': '$e'},
+              )),
+              backgroundColor: sari.danger),
         );
       }
     }
+  }
+
+  Widget _creditCard(
+    CreditItemModel credit,
+    ColorScheme scheme,
+    SariColors sari,
+  ) {
+    final settings = SettingsStore.instance;
+    return Container(
+      decoration: BoxDecoration(
+        color: sari.fieldFill.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: sari.success.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.fromLTRB(14, 4, 8, 4),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          leading: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: sari.success.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.person_outline,
+              color: sari.success,
+              size: 20,
+            ),
+          ),
+          title: Text(
+            credit.customerName,
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              credit.date.isEmpty ? credit.id : credit.date,
+              style: TextStyle(
+                color: sari.mutedText,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                settings.formatMoney(credit.amount),
+                style: TextStyle(
+                  color: credit.isPaid ? sari.success : sari.warning,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              GestureDetector(
+                onTap: credit.isPaid ? null : () => _markPaid(credit),
+                child: Text(
+                  credit.isPaid ? 'PAID' : 'MARK PAID',
+                  style: TextStyle(
+                    color: credit.isPaid ? sari.success : sari.danger,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                context.l10n.text('creditItemsTitle'),
+                style: TextStyle(
+                  color: sari.mutedText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (credit.items.isEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  context.l10n.text('noItemDetailsRecorded'),
+                  style: TextStyle(
+                    color: sari.faintText,
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              )
+            else
+              ...credit.items.map((line) => _creditLineRow(line, sari, scheme)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _creditLineRow(
+    CreditLineItem line,
+    SariColors sari,
+    ColorScheme scheme,
+  ) {
+    final settings = SettingsStore.instance;
+    final name = line.name.trim().isEmpty ? '—' : line.name;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${line.quantity} × ${settings.formatMoney(line.price)}',
+                  style: TextStyle(
+                    color: sari.faintText,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            settings.formatMoney(line.subtotal),
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -282,17 +366,17 @@ class _CreditScreenState extends State<CreditScreen> {
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: AppColors.darkBackgroundGradient,
+        decoration: BoxDecoration(
+          gradient: sari.screenGradient,
         ),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: user == null
-                ? const Center(
+                ? Center(
                     child: Text(
-                      'Please log in to view credit / utang.',
-                      style: TextStyle(color: AppColors.textMuted),
+                      context.l10n.text('creditViewLogin'),
+                      style: TextStyle(color: sari.mutedText),
                     ),
                   )
                 : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -305,16 +389,19 @@ class _CreditScreenState extends State<CreditScreen> {
                       if (snapshot.hasError) {
                         return Center(
                           child: Text(
-                            'Could not load credits: ${snapshot.error}',
-                            style: const TextStyle(color: AppColors.textMuted),
+                            context.l10n.text(
+                              'creditLoadFailed',
+                              values: {'error': '${snapshot.error}'},
+                            ),
+                            style: TextStyle(color: sari.mutedText),
                             textAlign: TextAlign.center,
                           ),
                         );
                       }
 
                       if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(color: AppColors.mintIcon),
+                        return Center(
+                          child: CircularProgressIndicator(color: sari.success),
                         );
                       }
 
@@ -327,7 +414,9 @@ class _CreditScreenState extends State<CreditScreen> {
                       // Filter gamit ang search query
                       final filtered = credits.where((c) {
                         return _searchQuery.isEmpty ||
-                            c.customerName.toLowerCase().contains(_searchQuery.toLowerCase());
+                            c.customerName
+                                .toLowerCase()
+                                .contains(_searchQuery.toLowerCase());
                       }).toList();
 
                       final totalUnpaid = credits
@@ -339,235 +428,177 @@ class _CreditScreenState extends State<CreditScreen> {
                         _checkOverdue(credits);
                       });
 
-                        return ListenableBuilder(
-                          listenable: SettingsStore.instance,
-                          builder: (context, _) {
-                            return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 12),
-                          Row(
+                      return ListenableBuilder(
+                        listenable: SettingsStore.instance,
+                        builder: (context, _) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              IconButton(
-                                icon: const Icon(Icons.arrow_back, color: AppColors.textWhite),
-                                onPressed: () => Navigator.of(context).pop(),
-                              ),
-                              const Expanded(
-                                child: Text(
-                                  'Credit / Utang List',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: AppColors.textWhite,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  IconButton(
+                                    icon: Icon(Icons.arrow_back,
+                                        color: scheme.onSurface),
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(),
                                   ),
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: 'Add Credit',
-                                onPressed: _showAddCreditDialog,
-                                icon: const Icon(Icons.add_circle_outline,
-                                    color: AppColors.accentOrange),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _searchController,
-                            onChanged: (val) => setState(() => _searchQuery = val.trim()),
-                            style: const TextStyle(color: AppColors.textWhite, fontSize: 13),
-                            decoration: InputDecoration(
-                              hintText: 'Search customer name...',
-                              hintStyle: const TextStyle(color: AppColors.textFaint, fontSize: 12),
-                              prefixIcon: const Icon(Icons.search, color: AppColors.textFaint, size: 18),
-                              filled: true,
-                              fillColor: AppColors.fieldGreen.withValues(alpha: 0.6),
-                              contentPadding: EdgeInsets.zero,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(
-                                  color: AppColors.mintIcon.withValues(alpha: 0.3),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: AppColors.fieldGreen.withValues(alpha: 0.3),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: AppColors.accentOrange.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'TOTAL UNPAID',
+                                  Expanded(
+                                    child: Text(
+                                      context.l10n.text('creditListTitle'),
+                                      textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        color: AppColors.textFaint,
-                                        fontSize: 11,
+                                        color: scheme.onSurface,
+                                        fontSize: 18,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                    SizedBox(height: 4),
+                                  ),
+                                  const SizedBox(width: 48),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _searchController,
+                                onChanged: (val) =>
+                                    setState(() => _searchQuery = val.trim()),
+                                style: TextStyle(
+                                    color: scheme.onSurface, fontSize: 13),
+                                decoration: InputDecoration(
+                                  hintText:
+                                      context.l10n.text('creditSearchHint'),
+                                  hintStyle: TextStyle(
+                                      color: sari.faintText, fontSize: 12),
+                                  prefixIcon: Icon(Icons.search,
+                                      color: sari.faintText, size: 18),
+                                  filled: true,
+                                  fillColor: sari.fieldFill,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                    borderSide: BorderSide(
+                                      color: sari.cardBorder,
+                                    ),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                    borderSide: BorderSide(
+                                      color: sari.cardBorder,
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                    borderSide: BorderSide(
+                                      color: sari.warning,
+                                      width: 1.2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: sari.cardSurface,
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(
+                                    color: sari.warning.withValues(alpha: 0.45),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: sari.shadow,
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          context.l10n.text('totalUnpaid'),
+                                          style: TextStyle(
+                                            color: sari.faintText,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          context.l10n
+                                              .text('uncollectedCredits'),
+                                          style: TextStyle(
+                                            color: sari.mutedText,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                     Text(
-                                      'Uncollected Credits',
+                                      SettingsStore.instance
+                                          .formatMoney(totalUnpaid),
                                       style: TextStyle(
-                                        color: AppColors.textMuted,
-                                        fontSize: 12,
+                                        color: sari.warning,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ],
                                 ),
-                                Text(
-                                  SettingsStore.instance.formatMoney(totalUnpaid),
-                                  style: const TextStyle(
-                                    color: AppColors.accentOrange,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Expanded(
-                            child: filtered.isEmpty
-                                ? Center(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.assignment_turned_in_outlined,
-                                          size: 48,
-                                          color: AppColors.mintIcon.withValues(alpha: 0.4),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          _searchQuery.isEmpty
-                                              ? 'No credits recorded yet'
-                                              : 'No matching customers',
-                                          style: const TextStyle(
-                                            color: AppColors.textMuted,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                        if (_searchQuery.isEmpty) ...[
-                                          const SizedBox(height: 12),
-                                          TextButton(
-                                            onPressed: _showAddCreditDialog,
-                                            child: const Text(
-                                              'Add your first credit',
-                                              style: TextStyle(
-                                                color: AppColors.accentOrange,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  )
-                                : ListView.separated(
-                                    physics: const BouncingScrollPhysics(),
-                                    itemCount: filtered.length,
-                                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                                    itemBuilder: (context, index) {
-                                      final credit = filtered[index];
-                                      return Container(
-                                        padding: const EdgeInsets.all(14),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.fieldGreen.withValues(alpha: 0.25),
-                                          borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(
-                                            color: AppColors.mintIcon.withValues(alpha: 0.2),
-                                          ),
-                                        ),
-                                        child: Row(
+                              ),
+                              const SizedBox(height: 14),
+                              Expanded(
+                                child: filtered.isEmpty
+                                    ? Center(
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
                                           children: [
-                                            Container(
-                                              padding: const EdgeInsets.all(10),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.mintIcon.withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(12),
-                                              ),
-                                              child: const Icon(
-                                                Icons.person_outline,
-                                                color: AppColors.mintIcon,
-                                                size: 20,
-                                              ),
+                                            Icon(
+                                              Icons
+                                                  .assignment_turned_in_outlined,
+                                              size: 48,
+                                              color: sari.success
+                                                  .withValues(alpha: 0.4),
                                             ),
-                                            const SizedBox(width: 14),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    credit.customerName,
-                                                    style: const TextStyle(
-                                                      color: AppColors.textWhite,
-                                                      fontSize: 15,
-                                                      fontWeight: FontWeight.bold,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    credit.date.isEmpty ? credit.id : credit.date,
-                                                    style: const TextStyle(
-                                                      color: AppColors.textMuted,
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                ],
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              _searchQuery.isEmpty
+                                                  ? context.l10n
+                                                      .text('noCreditsRecorded')
+                                                  : context.l10n.text(
+                                                      'noMatchingCustomers'),
+                                              style: TextStyle(
+                                                color: sari.mutedText,
+                                                fontSize: 14,
                                               ),
-                                            ),
-                                            Column(
-                                              crossAxisAlignment: CrossAxisAlignment.end,
-                                              children: [
-                                                Text(
-                                                  SettingsStore.instance.formatMoney(credit.amount),
-                                                  style: TextStyle(
-                                                    color: credit.isPaid
-                                                        ? AppColors.mintIcon
-                                                        : AppColors.accentOrange,
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                GestureDetector(
-                                                  onTap: credit.isPaid
-                                                      ? null
-                                                      : () => _markPaid(credit),
-                                                  child: Text(
-                                                    credit.isPaid ? 'PAID' : 'MARK PAID',
-                                                    style: TextStyle(
-                                                      color: credit.isPaid
-                                                          ? AppColors.mintIcon
-                                                          : AppColors.accentRed,
-                                                      fontSize: 11,
-                                                      fontWeight: FontWeight.bold,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
                                             ),
                                           ],
                                         ),
-                                      );
-                                    },
-                                  ),
-                          ),
-                        ],
+                                      )
+                                    : ListView.separated(
+                                        physics: const BouncingScrollPhysics(),
+                                        itemCount: filtered.length,
+                                        separatorBuilder: (_, __) =>
+                                            const SizedBox(height: 10),
+                                        itemBuilder: (context, index) {
+                                          return _creditCard(
+                                            filtered[index],
+                                            scheme,
+                                            sari,
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
+                          );
+                        },
                       );
-                          },
-                        );
                     },
                   ),
           ),
