@@ -2,11 +2,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/product_categories.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/product.dart';
-import '../../services/firebase_service.dart';
+import '../../services/notification_store.dart';
+import '../../services/product_repository.dart';
 import '../../services/settings_store.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/product_image.dart';
+import '../scan/barcode_scan_page.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final Product? product;
@@ -14,11 +17,12 @@ class ProductDetailScreen extends StatefulWidget {
   const ProductDetailScreen({super.key, this.product});
 
   static Future<void> show(BuildContext context, {Product? product}) {
+    final sari = context.sari;
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.55),
+      barrierColor: sari.shadow,
       builder: (_) => ProductDetailScreen(product: product),
     );
   }
@@ -28,7 +32,10 @@ class ProductDetailScreen extends StatefulWidget {
 }
 
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
-  final FirebaseService _firebaseService = FirebaseService();
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
+  final ProductRepository _products = ProductRepository.instance;
   final ImagePicker _picker = ImagePicker();
 
   late final TextEditingController _nameController;
@@ -39,6 +46,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   late String _category;
   String _imageUrl = '';
   bool _saving = false;
+  String? _barcodeError;
+  String? _priceError;
+  String? _stockError;
 
   bool get _isEditing => widget.product != null;
 
@@ -55,8 +65,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     super.initState();
     final p = widget.product;
     _nameController = TextEditingController(text: p?.name ?? '');
-    _priceController =
-        TextEditingController(text: p != null ? p.price.toStringAsFixed(2) : '');
+    _priceController = TextEditingController(
+        text: p != null ? p.price.toStringAsFixed(2) : '');
     _stockController =
         TextEditingController(text: p != null ? p.stock.toString() : '');
     _barcodeController = TextEditingController(text: p?.barcode ?? '');
@@ -72,6 +82,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     _stockController.dispose();
     _barcodeController.dispose();
     super.dispose();
+  }
+
+  Future<void> _scanBarcode() async {
+    if (_isEditing) return;
+    final code = await BarcodeScanPage.scan(context);
+    if (!mounted || code == null || code.isEmpty) return;
+    setState(() => _barcodeController.text = code);
   }
 
   Future<void> _pickImage() async {
@@ -96,18 +113,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkGreenMid,
+        backgroundColor: sari.cardSurfaceStrong,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: const Text('Paste image link',
-            style: TextStyle(color: AppColors.textWhite)),
+        title: Text(context.l10n.text('pasteImageLink'),
+            style: TextStyle(color: scheme.onSurface)),
         content: TextField(
           controller: controller,
-          style: const TextStyle(color: AppColors.textWhite),
+          style: TextStyle(color: scheme.onSurface),
           decoration: InputDecoration(
             hintText: 'https://...',
-            hintStyle: const TextStyle(color: AppColors.textFaint),
+            hintStyle: TextStyle(color: sari.faintText),
             filled: true,
-            fillColor: AppColors.fieldGreen.withValues(alpha: 0.5),
+            fillColor: sari.fieldFill.withValues(alpha: 0.5),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide.none,
@@ -117,12 +134,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppColors.textMuted)),
+            child: Text(context.l10n.text('cancel'),
+                style: TextStyle(color: sari.mutedText)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Save'),
+            child: Text(context.l10n.text('save')),
           ),
         ],
       ),
@@ -139,10 +156,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       builder: (ctx) => Container(
         margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         decoration: BoxDecoration(
-          color: AppColors.darkGreenMid,
+          color: sari.cardSurfaceStrong,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
-            color: AppColors.mintIcon.withValues(alpha: 0.18),
+            color: sari.success.withValues(alpha: 0.18),
           ),
         ),
         child: SafeArea(
@@ -154,18 +171,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.mintIcon.withValues(alpha: 0.35),
+                  color: sari.success.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Product photo',
+                    context.l10n.text('productPhoto'),
                     style: TextStyle(
-                      color: AppColors.textWhite,
+                      color: scheme.onSurface,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -173,25 +190,25 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 ),
               ),
               ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: AppColors.fieldGreen,
-                  child: Icon(Icons.photo_library_outlined,
-                      color: AppColors.mintIcon),
+                leading: CircleAvatar(
+                  backgroundColor: sari.fieldFill,
+                  child:
+                      Icon(Icons.photo_library_outlined, color: sari.success),
                 ),
-                title: const Text('Choose from gallery',
-                    style: TextStyle(color: AppColors.textWhite)),
+                title: Text(context.l10n.text('chooseGallery'),
+                    style: TextStyle(color: scheme.onSurface)),
                 onTap: () {
                   Navigator.pop(ctx);
                   _pickImage();
                 },
               ),
               ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: AppColors.fieldGreen,
-                  child: Icon(Icons.link, color: AppColors.mintIcon),
+                leading: CircleAvatar(
+                  backgroundColor: sari.fieldFill,
+                  child: Icon(Icons.link, color: sari.success),
                 ),
-                title: const Text('Paste image link',
-                    style: TextStyle(color: AppColors.textWhite)),
+                title: Text(context.l10n.text('pasteImageLink'),
+                    style: TextStyle(color: scheme.onSurface)),
                 onTap: () {
                   Navigator.pop(ctx);
                   _pasteImageLink();
@@ -206,48 +223,109 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Future<void> _save() async {
-    if (_nameController.text.trim().isEmpty ||
-        _barcodeController.text.trim().isEmpty) {
+    if (_nameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kailangan ng Name at Barcode.')),
+        SnackBar(content: Text(context.l10n.text('productNameRequired'))),
       );
       return;
     }
 
-    setState(() => _saving = true);
-
     final barcode = _barcodeController.text.trim();
+    final price = double.tryParse(_priceController.text.trim());
+    final stock = int.tryParse(_stockController.text.trim());
+
+    final barcodeError =
+        barcode.isEmpty ? context.l10n.text('barcodeRequired') : null;
+    final priceError = (price == null || price < 0)
+        ? context.l10n.text('invalidPrice')
+        : null;
+    final stockError = (stock == null || stock < 1)
+        ? context.l10n.text('quantityMinimum')
+        : null;
+
+    if (barcodeError != null || priceError != null || stockError != null) {
+      setState(() {
+        _barcodeError = barcodeError;
+        _priceError = priceError;
+        _stockError = stockError;
+      });
+      return;
+    }
+
+    setState(() {
+      _barcodeError = null;
+      _priceError = null;
+      _stockError = null;
+      _saving = true;
+    });
+
     final updatedProduct = Product(
       id: barcode,
       name: _nameController.text.trim(),
+      size: widget.product?.size ?? '',
       category: _category,
       // SKU is kept internally as barcode — not shown on Home UI.
       sku: barcode,
-      price: double.tryParse(_priceController.text.trim()) ?? 0,
-      stock: int.tryParse(_stockController.text.trim()) ?? 0,
+      price: price!,
+      stock: stock!,
       imageUrl: _imageUrl,
       barcode: barcode,
     );
 
     try {
       if (_isEditing) {
-        await _firebaseService.updateProduct(
-          widget.product!.barcode,
-          updatedProduct,
+        final source = widget.product!;
+        final withMeta = updatedProduct.copyWith(
+          id: source.id,
+          catalogProductId: source.catalogProductId.isNotEmpty
+              ? source.catalogProductId
+              : (source.isCatalogOnly ? source.id : ''),
+          isCatalogOnly: false,
+        );
+        await _products.updateProduct(
+          source.barcode,
+          withMeta,
+          oldInventoryId: source.id,
+        );
+        await NotificationStore.instance.addInventoryEvent(
+          action: 'edited',
+          productName: withMeta.name,
+          stock: withMeta.stock,
         );
       } else {
-        await _firebaseService.registerProduct(updatedProduct);
+        await _products.registerProduct(updatedProduct);
+        await NotificationStore.instance.addInventoryEvent(
+          action: 'added',
+          productName: updatedProduct.name,
+          stock: updatedProduct.stock,
+        );
+      }
+      if (updatedProduct.isLowStock || updatedProduct.isOutOfStock) {
+        await NotificationStore.instance.addLowStockAlert(
+          productName: updatedProduct.name,
+          stock: updatedProduct.stock,
+        );
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isEditing ? 'Na-update na!' : 'Naidagdag na!')),
+        SnackBar(
+          content: Text(context.l10n.text(
+            _isEditing ? 'productUpdated' : 'productAdded',
+          )),
+        ),
       );
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
+      final message = '$e'.toLowerCase().contains('not found')
+          ? context.l10n.text('productNotFound')
+          : context.l10n.text('failed', values: {'error': '$e'});
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('May error: $e')),
+        SnackBar(content: Text(message)),
       );
+      if ('$e'.toLowerCase().contains('not found')) {
+        Navigator.pop(context);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -257,31 +335,34 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkGreenMid,
+        backgroundColor: sari.cardSurfaceStrong,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: const Text(
-          'Remove this product?',
-          style: TextStyle(color: AppColors.textWhite),
+        title: Text(
+          context.l10n.text('removeProductTitle'),
+          style: TextStyle(color: scheme.onSurface),
         ),
         content: Text(
-          '“${widget.product!.name}” will be deleted from your store. This cannot be undone.',
-          style: const TextStyle(color: AppColors.textMuted, height: 1.4),
+          context.l10n.text(
+            'removeProductConfirmMessage',
+            values: {'name': widget.product!.name},
+          ),
+          style: TextStyle(color: sari.mutedText, height: 1.4),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Keep',
-                style: TextStyle(color: AppColors.textMuted)),
+            child: Text(context.l10n.text('keep'),
+                style: TextStyle(color: sari.mutedText)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accentRed,
-              foregroundColor: Colors.white,
+              backgroundColor: sari.danger,
+              foregroundColor: scheme.onError,
               minimumSize: const Size(120, 44),
             ),
-            child: const Text('Remove'),
+            child: Text(context.l10n.text('remove')),
           ),
         ],
       ),
@@ -291,18 +372,28 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
     setState(() => _saving = true);
     try {
-      await _firebaseService.deleteProduct(widget.product!.barcode);
+      await _products.deleteProduct(widget.product!);
+      await NotificationStore.instance.addInventoryEvent(
+        action: 'deleted',
+        productName: widget.product!.name,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nabura na ang product.')),
+        SnackBar(content: Text(context.l10n.text('productRemoved'))),
       );
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
+      final message = '$e'.toLowerCase().contains('not found')
+          ? context.l10n.text('productNotFound')
+          : context.l10n.text('failed', values: {'error': '$e'});
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('May error: $e')),
+        SnackBar(content: Text(message)),
       );
       setState(() => _saving = false);
+      if ('$e'.toLowerCase().contains('not found')) {
+        Navigator.pop(context);
+      }
     }
   }
 
@@ -319,19 +410,15 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           constraints: BoxConstraints(maxHeight: maxHeight),
           child: Container(
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFF16382C), AppColors.darkGreenTop],
-              ),
+              gradient: sari.modalGradient,
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(28)),
               border: Border.all(
-                color: AppColors.mintIcon.withValues(alpha: 0.16),
+                color: sari.success.withValues(alpha: 0.16),
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
+                  color: sari.shadow,
                   blurRadius: 24,
                   offset: const Offset(0, -8),
                 ),
@@ -345,7 +432,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   width: 42,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.mintIcon.withValues(alpha: 0.35),
+                    color: sari.success.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -355,26 +442,31 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     children: [
                       IconButton(
                         onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close,
-                            color: AppColors.textMuted),
+                        icon: Icon(Icons.close, color: sari.mutedText),
                       ),
                       Expanded(
                         child: Column(
                           children: [
                             Text(
-                              _isEditing ? 'Edit product' : 'New product',
-                              style: const TextStyle(
-                                color: AppColors.textWhite,
+                              context.l10n.text(
+                                _isEditing
+                                    ? 'productEditTitle'
+                                    : 'productNewTitle',
+                              ),
+                              style: TextStyle(
+                                color: scheme.onSurface,
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             Text(
-                              _isEditing
-                                  ? 'Update details or remove from store'
-                                  : 'Add an item to your sari-sari inventory',
-                              style: const TextStyle(
-                                color: AppColors.textFaint,
+                              context.l10n.text(
+                                _isEditing
+                                    ? 'productEditSubtitle'
+                                    : 'productNewSubtitle',
+                              ),
+                              style: TextStyle(
+                                color: sari.faintText,
                                 fontSize: 12,
                               ),
                             ),
@@ -399,11 +491,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                 width: 112,
                                 height: 112,
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: sari.imagePlaceholder,
                                   borderRadius: BorderRadius.circular(28),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.2),
+                                      color: sari.shadow,
                                       blurRadius: 16,
                                       offset: const Offset(0, 8),
                                     ),
@@ -421,22 +513,22 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: AppColors.accentOrange,
+                                  color: sari.warning,
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: AppColors.darkGreenTop,
+                                    color: sari.onAccent,
                                     width: 3,
                                   ),
                                 ),
-                                child: const Icon(Icons.camera_alt_outlined,
-                                    size: 14, color: AppColors.darkGreenTop),
+                                child: Icon(Icons.camera_alt_outlined,
+                                    size: 14, color: sari.onAccent),
                               ),
                             ],
                           ),
                         ),
                         const SizedBox(height: 18),
                         _field(
-                          label: 'Item name',
+                          label: context.l10n.text('itemName'),
                           controller: _nameController,
                           icon: Icons.inventory_2_outlined,
                         ),
@@ -445,31 +537,50 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           children: [
                             Expanded(
                               child: _field(
-                                label:
-                                    'Price (${SettingsStore.instance.currencySymbol})',
+                                label: context.l10n.text(
+                                  'priceLabel',
+                                  values: {
+                                    'symbol':
+                                        SettingsStore.instance.currencySymbol,
+                                  },
+                                ),
                                 controller: _priceController,
                                 icon: Icons.payments_outlined,
                                 keyboardType:
                                     const TextInputType.numberWithOptions(
                                         decimal: true),
+                                errorText: _priceError,
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: _field(
-                                label: 'Stock',
+                                label: context.l10n.text('stock'),
                                 controller: _stockController,
                                 icon: Icons.layers_outlined,
                                 keyboardType: TextInputType.number,
+                                errorText: _stockError,
                               ),
                             ),
                           ],
                         ),
                         _field(
-                          label: 'Barcode',
+                          label: context.l10n.text('barcode'),
                           controller: _barcodeController,
                           icon: Icons.qr_code_2,
                           readOnly: _isEditing,
+                          errorText: _barcodeError,
+                          suffix: _isEditing
+                              ? null
+                              : IconButton(
+                                  tooltip: context.l10n.text('navScan'),
+                                  onPressed: _scanBarcode,
+                                  icon: Icon(
+                                    Icons.qr_code_scanner_rounded,
+                                    color: sari.success,
+                                    size: 22,
+                                  ),
+                                ),
                         ),
                         const SizedBox(height: 8),
                         SizedBox(
@@ -477,17 +588,17 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           child: ElevatedButton(
                             onPressed: _saving ? null : _save,
                             child: _saving
-                                ? const SizedBox(
+                                ? SizedBox(
                                     height: 22,
                                     width: 22,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: AppColors.darkGreenTop,
+                                      color: sari.onAccent,
                                     ),
                                   )
                                 : Text(_isEditing
-                                    ? 'Save changes'
-                                    : 'Add product'),
+                                    ? context.l10n.text('saveChanges')
+                                    : context.l10n.text('addProduct')),
                           ),
                         ),
                         if (_isEditing) ...[
@@ -497,11 +608,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             child: OutlinedButton.icon(
                               onPressed: _saving ? null : _delete,
                               icon: const Icon(Icons.delete_outline),
-                              label: const Text('Remove product'),
+                              label: Text(context.l10n.text('removeProduct')),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.accentRed,
-                                side: const BorderSide(
-                                    color: AppColors.accentRed),
+                                foregroundColor: sari.danger,
+                                side: BorderSide(color: sari.danger),
                                 minimumSize: const Size.fromHeight(50),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(30),
@@ -539,17 +649,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           if (value == null) return;
           setState(() => _category = value);
         },
-        dropdownColor: AppColors.darkGreenMid,
-        icon: const Icon(Icons.keyboard_arrow_down,
-            color: AppColors.mintIcon),
-        style: const TextStyle(color: AppColors.textWhite, fontSize: 14),
+        dropdownColor: sari.cardSurfaceStrong,
+        icon: Icon(Icons.keyboard_arrow_down, color: sari.success),
+        style: TextStyle(color: scheme.onSurface, fontSize: 14),
         decoration: InputDecoration(
-          labelText: 'Category',
-          prefixIcon: const Icon(Icons.category_outlined,
-              color: AppColors.mintIcon, size: 20),
-          labelStyle: const TextStyle(color: AppColors.textMuted),
+          labelText: context.l10n.text('category'),
+          prefixIcon:
+              Icon(Icons.category_outlined, color: sari.success, size: 20),
+          labelStyle: TextStyle(color: sari.mutedText),
           filled: true,
-          fillColor: AppColors.fieldGreen.withValues(alpha: 0.45),
+          fillColor: sari.fieldFill.withValues(alpha: 0.45),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           border: OutlineInputBorder(
@@ -567,6 +676,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     required IconData icon,
     TextInputType? keyboardType,
     bool readOnly = false,
+    Widget? suffix,
+    String? errorText,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -574,13 +685,26 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         controller: controller,
         keyboardType: keyboardType,
         readOnly: readOnly,
-        style: const TextStyle(color: AppColors.textWhite),
+        style: TextStyle(color: scheme.onSurface),
+        onChanged: (_) {
+          if (_barcodeError != null ||
+              _priceError != null ||
+              _stockError != null) {
+            setState(() {
+              _barcodeError = null;
+              _priceError = null;
+              _stockError = null;
+            });
+          }
+        },
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(icon, color: AppColors.mintIcon, size: 20),
-          labelStyle: const TextStyle(color: AppColors.textMuted),
+          prefixIcon: Icon(icon, color: sari.success, size: 20),
+          suffixIcon: suffix,
+          errorText: errorText,
+          labelStyle: TextStyle(color: sari.mutedText),
           filled: true,
-          fillColor: AppColors.fieldGreen.withValues(alpha: 0.45),
+          fillColor: sari.fieldFill.withValues(alpha: 0.45),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           border: OutlineInputBorder(
