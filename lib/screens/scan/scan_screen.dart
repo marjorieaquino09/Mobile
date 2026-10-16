@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/product.dart';
 import '../../services/cart_store.dart';
 import '../../services/scan_service.dart';
@@ -31,17 +35,27 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
   late final MobileScannerController _controller;
   final ScanService _scanService = ScanService();
 
   String? _lastCode;
   Product? _matchedProduct;
-  bool _notFound = false;
+  Product? _catalogSuggestion;
   bool _loading = false;
   bool _torchOn = false;
   bool _busy = false;
-  String? _errorMessage;
+  bool _sheetOpen = false;
+  bool _scanPaused = false;
+  DateTime? _debounceUntil;
   _ScanAction _action = _ScanAction.choose;
+  Timer? _cartToastTimer;
+  String? _cartToastMessage;
+
+  bool _permissionDenied = false;
+  bool _permanentlyDenied = false;
 
   @override
   void initState() {
@@ -50,12 +64,53 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
     _controller = MobileScannerController(
       detectionSpeed: DetectionSpeed.noDuplicates,
       facing: CameraFacing.back,
-      autoStart: widget.isActive,
+      autoStart: false,
     );
+    if (widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_ensureCamera());
+      });
+    }
     if (widget.scannedBarcode != null && widget.scannedBarcode!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _handleCode(widget.scannedBarcode!);
       });
+    }
+  }
+
+  Future<void> _ensureCamera() async {
+    if (!mounted || !widget.isActive) return;
+
+    // Match BarcodeScanPage: Android needs an explicit runtime request.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      var status = await Permission.camera.status;
+      if (!status.isGranted) {
+        status = await Permission.camera.request();
+      }
+      if (!mounted) return;
+      if (!status.isGranted) {
+        setState(() {
+          _permissionDenied = true;
+          _permanentlyDenied =
+              status.isPermanentlyDenied || status.isRestricted;
+        });
+        return;
+      }
+    }
+
+    try {
+      await _controller.start();
+      if (!mounted) return;
+      setState(() {
+        _permissionDenied = false;
+        _permanentlyDenied = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _permissionDenied = true;
+      });
+      debugPrint('[ScanScreen] camera start failed: $e');
     }
   }
 
@@ -64,7 +119,7 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive == oldWidget.isActive) return;
     if (widget.isActive) {
-      unawaited(_controller.start());
+      unawaited(_ensureCamera());
     } else {
       unawaited(_controller.stop());
     }
@@ -77,172 +132,108 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
         state == AppLifecycleState.inactive) {
       unawaited(_controller.stop());
     } else if (state == AppLifecycleState.resumed) {
-      unawaited(_controller.start());
+      unawaited(_ensureCamera());
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _cartToastTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
   Future<void> _handleCode(String code) async {
-    if (_busy || code == _lastCode) return;
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return;
 
-    debugPrint('[ScanScreen] Scanned barcode=$code — querying Firebase…');
+    final now = DateTime.now();
+    if (_sheetOpen || _busy) return;
+    if (_debounceUntil != null &&
+        now.isBefore(_debounceUntil!) &&
+        trimmed == _lastCode) {
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+    debugPrint('[ScanScreen] Scanned barcode=$trimmed — querying Firebase…');
 
     setState(() {
       _busy = true;
-      _lastCode = code;
+      _lastCode = trimmed;
       _loading = true;
       _matchedProduct = null;
-      _notFound = false;
-      _errorMessage = null;
+      _catalogSuggestion = null;
       _action = _ScanAction.choose;
+      _scanPaused = true;
     });
 
-    // Pause camera so we don't keep re-firing while the prompt is open.
-    try {
-      await _controller.stop();
-    } catch (_) {}
-
-    final result = await _scanService.lookupBarcode(code);
+    final result = await _scanService.lookupBarcode(trimmed);
     if (!mounted) return;
 
     if (!result.success) {
       debugPrint('[ScanScreen] Lookup failed: ${result.message}');
       setState(() {
         _loading = false;
-        _errorMessage = result.message;
         _busy = false;
+        _scanPaused = false;
         _lastCode = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result.message),
-          backgroundColor: AppColors.accentRed,
+          backgroundColor: sari.danger,
         ),
       );
-      unawaited(_controller.start());
       return;
     }
 
     setState(() {
       _loading = false;
       _matchedProduct = result.product;
-      _notFound = !result.found;
+      _catalogSuggestion = result.catalogSuggestion;
+      _busy = false;
     });
 
-    // Always prompt: Inventory vs Cart after a successful scan.
-    await _showScanChoiceDialog(
-      code: code,
-      product: result.product,
-      found: result.found,
-    );
+    _debounceUntil = now.add(const Duration(seconds: 2));
+    await _openResultSheet(trimmed);
   }
 
-  Future<void> _showScanChoiceDialog({
-    required String code,
-    required Product? product,
-    required bool found,
-  }) async {
-    final choice = await showDialog<_ScanAction>(
+  Future<void> _openResultSheet(String code) async {
+    if (!mounted || _sheetOpen) return;
+    _sheetOpen = true;
+    final bottomNavPad = 88.0 + MediaQuery.paddingOf(context).bottom;
+
+    await showModalBottomSheet<void>(
       context: context,
-      barrierDismissible: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: true,
       builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: AppColors.darkGreenMid,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text(
-            found ? (product?.name ?? 'Item found') : 'New barcode',
-            style: const TextStyle(
-              color: AppColors.textWhite,
-              fontWeight: FontWeight.bold,
-            ),
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(ctx).bottom + bottomNavPad,
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                found
-                    ? 'Barcode $code detected. What do you want to do?'
-                    : 'Barcode "$code" is not in inventory yet.',
-                style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
-              ),
-              if (found && product != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '₱${product.price.toStringAsFixed(2)} · ${product.stock} in stock',
-                  style: const TextStyle(
-                    color: AppColors.mintIcon,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ],
+          child: _ScanResultCard(
+            product: _matchedProduct,
+            catalogSuggestion: _catalogSuggestion,
+            scannedCode: code,
+            action: _action,
+            onActionChanged: (a) => setState(() => _action = a),
+            onDismiss: () => Navigator.pop(ctx),
+            onRegistered: () {
+              Navigator.pop(ctx);
+              _clearResult();
+            },
+            onOpenCart: _openCart,
+            onCartAdded: _showCartAddedToast,
           ),
-          actionsAlignment: MainAxisAlignment.spaceBetween,
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel',
-                  style: TextStyle(color: AppColors.textMuted)),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.pop(ctx, _ScanAction.addInventory),
-              child: const Text(
-                'Add to Inventory',
-                style: TextStyle(
-                  color: AppColors.mintIcon,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, _ScanAction.checkout),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.accentOrange,
-              ),
-              child: const Text(
-                'Add to Cart',
-                style: TextStyle(
-                  color: AppColors.darkGreenTop,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
         );
       },
     );
 
-    if (!mounted) return;
-
-    if (choice == null) {
-      _clearResult();
-      unawaited(_controller.start());
-      return;
-    }
-
-    if (choice == _ScanAction.checkout && product == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Register the item first via Add to Inventory.',
-          ),
-        ),
-      );
-      setState(() => _action = _ScanAction.addInventory);
-      return;
-    }
-
-    setState(() => _action = choice);
+    if (mounted) _clearResult();
   }
 
   void _openCart() {
@@ -255,8 +246,17 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showCartAddedToast(String message) {
+    _cartToastTimer?.cancel();
+    setState(() => _cartToastMessage = message);
+    _cartToastTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => _cartToastMessage = null);
+    });
+  }
+
   void _onDetect(BarcodeCapture capture) {
-    if (_busy) return;
+    if (_busy || _scanPaused || _sheetOpen) return;
     if (capture.barcodes.isEmpty) return;
     final rawValue = capture.barcodes.first.rawValue;
     if (rawValue == null || rawValue.isEmpty) return;
@@ -267,13 +267,13 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
     setState(() {
       _lastCode = null;
       _matchedProduct = null;
-      _notFound = false;
+      _catalogSuggestion = null;
       _loading = false;
       _busy = false;
-      _errorMessage = null;
+      _sheetOpen = false;
+      _scanPaused = false;
       _action = _ScanAction.choose;
     });
-    unawaited(_controller.start());
   }
 
   @override
@@ -282,27 +282,35 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
       listenable: CartStore.instance,
       builder: (context, _) {
         final cartItemCount = CartStore.instance.itemCount;
-        final showResultArea = _matchedProduct != null ||
-            _notFound ||
-            _loading ||
-            (_errorMessage != null && _lastCode != null);
+        final sheetLift = _sheetOpen ? 120.0 : 0.0;
 
         return Scaffold(
-          backgroundColor: AppColors.darkGreenTop,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           body: Stack(
             children: [
-              MobileScanner(
-                controller: _controller,
-                onDetect: _onDetect,
-                errorBuilder: (context, error, child) {
-                  return _CameraErrorView(
-                    message: error.errorDetails?.message ??
-                        error.errorCode.name,
-                    onRetry: () => _controller.start(),
-                  );
-                },
-              ),
-              _ScannerOverlay(),
+              if (_permissionDenied)
+                _CameraErrorView(
+                  message: context.l10n.text('cameraPermissionNeeded'),
+                  onRetry: () {
+                    setState(() => _permissionDenied = false);
+                    unawaited(_ensureCamera());
+                  },
+                  showSettings: _permanentlyDenied || _permissionDenied,
+                )
+              else
+                MobileScanner(
+                  controller: _controller,
+                  onDetect: _onDetect,
+                  errorBuilder: (context, error, child) {
+                    return _CameraErrorView(
+                      message:
+                          error.errorDetails?.message ?? error.errorCode.name,
+                      onRetry: () => unawaited(_ensureCamera()),
+                      showSettings: true,
+                    );
+                  },
+                ),
+              if (!_permissionDenied) _ScannerOverlay(bottomInset: sheetLift),
               SafeArea(
                 child: Padding(
                   padding:
@@ -316,18 +324,26 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
                               onTap: () => Navigator.of(context).pop(),
                             )
                           : const SizedBox(width: 42),
-                      const Text(
-                        'Scan Item',
+                      Text(
+                        context.l10n.text('scanTitle'),
                         style: TextStyle(
-                          color: AppColors.textWhite,
+                          color: scheme.onSurface,
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
+                          shadows: [
+                            Shadow(
+                              blurRadius: 8,
+                              color: scheme.shadow.withValues(alpha: 0.55),
+                            ),
+                          ],
                         ),
                       ),
                       Row(
                         children: [
                           _circleIconButton(
                             icon: _torchOn ? Icons.flash_on : Icons.flash_off,
+                            iconColor:
+                                _torchOn ? sari.warning : scheme.onSurface,
                             onTap: () async {
                               await _controller.toggleTorch();
                               setState(() => _torchOn = !_torchOn);
@@ -346,14 +362,14 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
                                   top: 2,
                                   child: Container(
                                     padding: const EdgeInsets.all(4),
-                                    decoration: const BoxDecoration(
-                                      color: AppColors.accentRed,
+                                    decoration: BoxDecoration(
+                                      color: sari.danger,
                                       shape: BoxShape.circle,
                                     ),
                                     child: Text(
                                       '$cartItemCount',
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                      style: TextStyle(
+                                        color: scheme.onError,
                                         fontSize: 9,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -369,33 +385,100 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
                 ),
               ),
               if (_loading)
-                const Positioned(
+                Positioned(
                   left: 0,
                   right: 0,
                   bottom: 110,
                   child: Center(
-                    child: CircularProgressIndicator(color: AppColors.mintIcon),
+                    child: CircularProgressIndicator(color: sari.success),
                   ),
-                )
-              else if (showResultArea)
+                ),
+              if (_cartToastMessage != null)
                 Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 90,
-                  child: _ScanResultCard(
-                    product: _matchedProduct,
-                    scannedCode: _lastCode ?? '',
-                    action: _action,
-                    onActionChanged: (a) => setState(() => _action = a),
-                    onDismiss: _clearResult,
-                    onRegistered: () {
-                      final code = _lastCode;
-                      _clearResult();
-                      if (code != null && code.isNotEmpty) {
-                        _handleCode(code);
-                      }
-                    },
-                    onOpenCart: _openCart,
+                  left: 16,
+                  right: 16,
+                  bottom: MediaQuery.paddingOf(context).bottom + 16,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, progress, child) => Opacity(
+                      opacity: progress,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - progress) * 10),
+                        child: child,
+                      ),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: sari.cardSurfaceStrong,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: sari.success.withValues(alpha: 0.3),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: sari.shadow,
+                              blurRadius: 18,
+                              offset: const Offset(0, 7),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: sari.success.withValues(alpha: 0.14),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.check_rounded,
+                                color: sari.success,
+                                size: 21,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _cartToastMessage!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: scheme.onSurface,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              tooltip: context.l10n.text('viewCart'),
+                              onPressed: _openCart,
+                              style: IconButton.styleFrom(
+                                backgroundColor: sari.warning,
+                                foregroundColor: sari.onAccent,
+                                fixedSize: const Size(40, 40),
+                                padding: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: const Icon(
+                                Icons.arrow_forward_rounded,
+                                size: 20,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -408,6 +491,7 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
   Widget _circleIconButton({
     required IconData icon,
     required VoidCallback onTap,
+    Color? iconColor,
   }) {
     return InkWell(
       onTap: onTap,
@@ -415,10 +499,10 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.35),
+          color: sari.shadow,
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: AppColors.textWhite, size: 20),
+        child: Icon(icon, color: iconColor ?? scheme.onSurface, size: 20),
       ),
     );
   }
@@ -427,10 +511,12 @@ class _ScanScreenState extends State<ScanScreen> with WidgetsBindingObserver {
 class _CameraErrorView extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
+  final bool showSettings;
 
   const _CameraErrorView({
     required this.message,
     required this.onRetry,
+    this.showSettings = true,
   });
 
   @override
@@ -442,13 +528,13 @@ class _CameraErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.camera_alt_outlined,
-              color: AppColors.textMuted, size: 48),
+          Icon(Icons.camera_alt_outlined,
+              color: Theme.of(context).colorScheme.onSurfaceVariant, size: 48),
           const SizedBox(height: 12),
-          const Text(
-            'Camera is not available',
+          Text(
+            context.l10n.text('cameraPermissionNeeded'),
             style: TextStyle(
-              color: AppColors.textWhite,
+              color: Theme.of(context).colorScheme.onSurface,
               fontWeight: FontWeight.bold,
               fontSize: 16,
             ),
@@ -457,13 +543,29 @@ class _CameraErrorView extends StatelessWidget {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 13,
+            ),
           ),
           const SizedBox(height: 16),
           ElevatedButton(
             onPressed: onRetry,
-            child: const Text('Try again'),
+            child: Text(context.l10n.text('tryAgain')),
           ),
+          if (showSettings) ...[
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: openAppSettings,
+              child: Text(
+                context.l10n.text('openAppSettings'),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -471,28 +573,36 @@ class _CameraErrorView extends StatelessWidget {
 }
 
 class _ScannerOverlay extends StatelessWidget {
+  const _ScannerOverlay({this.bottomInset = 0});
+
+  final double bottomInset;
+
   @override
   Widget build(BuildContext context) {
+    // Camera chrome stays dark in both light and dark app themes.
     return IgnorePointer(
       child: LayoutBuilder(
         builder: (context, constraints) {
           final frameSize = constraints.maxWidth * 0.7;
+          final centerY = (constraints.maxHeight - bottomInset) / 2;
           return Stack(
             children: [
               ColorFiltered(
                 colorFilter: ColorFilter.mode(
-                  Colors.black.withValues(alpha: 0.45),
+                  Colors.black.withValues(alpha: 0.55),
                   BlendMode.srcOut,
                 ),
                 child: Stack(
                   children: [
                     Container(
-                      decoration: const BoxDecoration(
-                        color: Colors.black,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
                         backgroundBlendMode: BlendMode.dstOut,
                       ),
                     ),
-                    Center(
+                    Positioned(
+                      left: (constraints.maxWidth - frameSize) / 2,
+                      top: centerY - frameSize / 2,
                       child: Container(
                         width: frameSize,
                         height: frameSize,
@@ -505,13 +615,18 @@ class _ScannerOverlay extends StatelessWidget {
                   ],
                 ),
               ),
-              Center(
+              Positioned(
+                left: (constraints.maxWidth - frameSize) / 2,
+                top: centerY - frameSize / 2,
                 child: Container(
                   width: frameSize,
                   height: frameSize,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: AppColors.mintIcon, width: 2.5),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2.5,
+                    ),
                   ),
                 ),
               ),
@@ -525,21 +640,25 @@ class _ScannerOverlay extends StatelessWidget {
 
 class _ScanResultCard extends StatefulWidget {
   final Product? product;
+  final Product? catalogSuggestion;
   final String scannedCode;
   final _ScanAction action;
   final ValueChanged<_ScanAction> onActionChanged;
   final VoidCallback onDismiss;
   final VoidCallback onRegistered;
   final VoidCallback onOpenCart;
+  final ValueChanged<String> onCartAdded;
 
   const _ScanResultCard({
     required this.product,
+    this.catalogSuggestion,
     required this.scannedCode,
     required this.action,
     required this.onActionChanged,
     required this.onDismiss,
     required this.onRegistered,
     required this.onOpenCart,
+    required this.onCartAdded,
   });
 
   @override
@@ -547,6 +666,9 @@ class _ScanResultCard extends StatefulWidget {
 }
 
 class _ScanResultCardState extends State<_ScanResultCard> {
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
   final ScanService _scanService = ScanService();
   final ImagePicker _picker = ImagePicker();
 
@@ -575,15 +697,16 @@ class _ScanResultCardState extends State<_ScanResultCard> {
   }
 
   void _hydrateFromProduct() {
-    final p = widget.product;
+    final p = widget.product ?? widget.catalogSuggestion;
     _nameController.text = p?.name ?? '';
     _categoryController.text = p?.category ?? '';
-    _priceController.text =
-        p != null ? p.price.toStringAsFixed(2) : '';
+    _priceController.text = p != null ? p.price.toStringAsFixed(2) : '';
     _stockController.text = '1';
     _imageUrl = p?.imageUrl ?? '';
     _quantity = 1;
   }
+
+  String? get _catalogProductId => widget.catalogSuggestion?.id;
 
   @override
   void dispose() {
@@ -611,9 +734,9 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     final product = widget.product;
     if (product == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'I-register muna ang item (Add to Inventory) bago i-checkout.',
+            context.l10n.text('scanAddToInventoryFirst'),
           ),
         ),
       );
@@ -628,10 +751,16 @@ class _ScanResultCardState extends State<_ScanResultCard> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Kulang ang stock. Available: ${product.stock}, '
-            'nasa cart: $alreadyInCart, hinihingi: $_quantity',
+            context.l10n.text(
+              'scanInsufficientStock',
+              values: {
+                'stock': '${product.stock}',
+                'cart': '$alreadyInCart',
+                'quantity': '$_quantity',
+              },
+            ),
           ),
-          backgroundColor: AppColors.accentRed,
+          backgroundColor: sari.danger,
         ),
       );
       return;
@@ -643,8 +772,11 @@ class _ScanResultCardState extends State<_ScanResultCard> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$e'),
-          backgroundColor: AppColors.accentRed,
+          content: Text(context.l10n.text(
+            'failed',
+            values: {'error': '$e'},
+          )),
+          backgroundColor: sari.danger,
         ),
       );
       return;
@@ -655,16 +787,10 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Added $_quantity × ${product.name} to Cart'),
-        action: SnackBarAction(
-          label: 'VIEW CART',
-          textColor: AppColors.accentOrange,
-          onPressed: widget.onOpenCart,
-        ),
-      ),
-    );
+    widget.onCartAdded(context.l10n.text(
+      'addedToCartMessage',
+      values: {'quantity': '$_quantity', 'name': product.name},
+    ));
     widget.onDismiss();
   }
 
@@ -672,7 +798,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kailangan ng product name.')),
+        SnackBar(content: Text(context.l10n.text('productNameRequired'))),
       );
       return;
     }
@@ -680,7 +806,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     final price = double.tryParse(_priceController.text.trim());
     if (price == null || price < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid price.')),
+        SnackBar(content: Text(context.l10n.text('invalidPrice'))),
       );
       return;
     }
@@ -688,7 +814,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     final qty = int.tryParse(_stockController.text.trim()) ?? _quantity;
     if (qty <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Quantity must be at least 1.')),
+        SnackBar(content: Text(context.l10n.text('quantityMinimum'))),
       );
       return;
     }
@@ -708,6 +834,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
       quantity: qty,
       imageUrl: _imageUrl,
       addToExistingStock: widget.product != null,
+      catalogProductId: _catalogProductId,
     );
 
     if (!mounted) return;
@@ -716,28 +843,173 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(result.message),
-        backgroundColor:
-            result.success ? null : AppColors.accentRed,
+        backgroundColor: result.success ? null : sari.danger,
       ),
     );
 
     if (result.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.l10n.text('itemRegistered')),
+          duration: const Duration(seconds: 2),
+        ),
+      );
       widget.onRegistered();
     }
+  }
+
+  Future<void> _showQuickCartEntry() async {
+    final suffix = widget.scannedCode.length >= 4
+        ? widget.scannedCode.substring(widget.scannedCode.length - 4)
+        : widget.scannedCode;
+    final priceController = TextEditingController();
+    final fallbackItemName = context.l10n.text(
+      'genericItemName',
+      values: {'suffix': suffix},
+    );
+    final nameController = TextEditingController(text: fallbackItemName);
+    var saveToInventory = false;
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(ctx).bottom + 16,
+          ),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: sari.cardSurfaceStrong,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: StatefulBuilder(
+              builder: (context, setLocal) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.l10n.text('quickAddToCart'),
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: priceController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      style: TextStyle(color: scheme.onSurface),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: scheme.surfaceContainerHighest,
+                        labelText: context.l10n.text('priceRequired'),
+                        prefixText: '₱ ',
+                        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: nameController,
+                      style: TextStyle(color: scheme.onSurface),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: scheme.surfaceContainerHighest,
+                        labelText: context.l10n.text('nameOptional'),
+                        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                    CheckboxListTile(
+                      value: saveToInventory,
+                      onChanged: (v) =>
+                          setLocal(() => saveToInventory = v ?? false),
+                      title: Text(
+                        context.l10n.text('alsoSaveInventory'),
+                        style: TextStyle(
+                          color: sari.mutedText,
+                          fontSize: 13,
+                        ),
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: sari.warning,
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: Text(context.l10n.text('addToCart')),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    if (ok != true || !mounted) return;
+
+    final price = double.tryParse(priceController.text.trim());
+    if (price == null || price <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.text('enterValidPrice'))),
+      );
+      return;
+    }
+
+    if (saveToInventory) {
+      widget.onActionChanged(_ScanAction.addInventory);
+      _nameController.text = nameController.text.trim();
+      _priceController.text = price.toStringAsFixed(2);
+      return;
+    }
+
+    try {
+      CartStore.instance.addOneTime(
+        barcode: widget.scannedCode,
+        name: nameController.text.trim().isEmpty
+            ? fallbackItemName
+            : nameController.text.trim(),
+        price: price,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.l10n.text(
+            'failed',
+            values: {'error': '$e'},
+          )),
+          backgroundColor: sari.danger,
+        ),
+      );
+      return;
+    }
+
+    widget.onDismiss();
   }
 
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
-    final maxHeight = MediaQuery.of(context).size.height * 0.62;
+    final maxHeight = MediaQuery.of(context).size.height *
+        (widget.action == _ScanAction.choose ? 0.30 : 0.65);
 
     return Container(
       constraints: BoxConstraints(maxHeight: maxHeight),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
       decoration: BoxDecoration(
-        gradient: AppColors.backgroundGradient,
+        gradient: sari.screenGradient,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        border: Border.all(color: AppColors.mintIcon.withValues(alpha: 0.25)),
+        border: Border.all(color: sari.cardBorder),
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -750,14 +1022,13 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.textFaint,
+                    color: sari.faintText,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.close,
-                      color: AppColors.textFaint, size: 20),
+                  icon: Icon(Icons.close, color: sari.faintText, size: 20),
                   onPressed: widget.onDismiss,
                 ),
               ],
@@ -765,10 +1036,10 @@ class _ScanResultCardState extends State<_ScanResultCard> {
             _buildHeader(product),
             const SizedBox(height: 14),
             if (widget.action == _ScanAction.choose) ...[
-              const Text(
-                'What do you want to do?',
+              Text(
+                context.l10n.text('newItemChoicePrompt'),
                 style: TextStyle(
-                  color: AppColors.textMuted,
+                  color: sari.mutedText,
                   fontSize: 13,
                 ),
               ),
@@ -780,17 +1051,16 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                       onPressed: () =>
                           widget.onActionChanged(_ScanAction.addInventory),
                       icon: const Icon(Icons.inventory_2_outlined, size: 18),
-                      label: const Text(
-                        'Add to Inventory',
-                        style: TextStyle(
+                      label: Text(
+                        context.l10n.text('addToInventory'),
+                        style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.mintIcon,
-                        side: const BorderSide(
-                            color: AppColors.mintIcon, width: 1.5),
+                        foregroundColor: sari.success,
+                        side: BorderSide(color: sari.success, width: 1.5),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
@@ -801,30 +1071,20 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: product == null
-                          ? () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Register the item first via Add to Inventory.',
-                                  ),
-                                ),
-                              );
-                              widget.onActionChanged(_ScanAction.addInventory);
-                            }
-                          : () =>
-                              widget.onActionChanged(_ScanAction.checkout),
-                      icon: const Icon(Icons.shopping_cart,
-                          size: 18, color: AppColors.darkGreenTop),
-                      label: const Text(
-                        'Add to Cart',
+                          ? _showQuickCartEntry
+                          : () => widget.onActionChanged(_ScanAction.checkout),
+                      icon: Icon(Icons.shopping_cart,
+                          size: 18, color: sari.onAccent),
+                      label: Text(
+                        context.l10n.text('addToCart'),
                         style: TextStyle(
-                          color: AppColors.darkGreenTop,
+                          color: sari.onAccent,
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.accentOrange,
+                        backgroundColor: sari.warning,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
@@ -864,25 +1124,29 @@ class _ScanResultCardState extends State<_ScanResultCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(product.category,
-                    style: const TextStyle(
-                        color: AppColors.mintIcon,
+                    style: TextStyle(
+                        color: sari.success,
                         fontSize: 11,
                         fontWeight: FontWeight.w600)),
                 Text(product.name,
-                    style: const TextStyle(
-                        color: AppColors.textWhite,
+                    style: TextStyle(
+                        color: scheme.onSurface,
                         fontSize: 16,
                         fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 Text(
-                  '₱${product.price.toStringAsFixed(2)} · ${product.stock} in stock',
-                  style: const TextStyle(
-                      color: AppColors.textMuted, fontSize: 13),
+                  '₱${product.price.toStringAsFixed(2)} · '
+                  '${context.l10n.text('inStock', values: {
+                        'stock': '${product.stock}'
+                      })}',
+                  style: TextStyle(color: sari.mutedText, fontSize: 13),
                 ),
                 Text(
-                  'Barcode: ${widget.scannedCode}',
-                  style: const TextStyle(
-                      color: AppColors.textFaint, fontSize: 11),
+                  context.l10n.text(
+                    'barcodePrefix',
+                    values: {'barcode': widget.scannedCode},
+                  ),
+                  style: TextStyle(color: sari.faintText, fontSize: 11),
                 ),
               ],
             ),
@@ -897,25 +1161,27 @@ class _ScanResultCardState extends State<_ScanResultCard> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: AppColors.accentRed.withValues(alpha: 0.2),
+            color: sari.danger.withValues(alpha: 0.2),
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.error_outline, color: AppColors.accentRed),
+          child: Icon(Icons.error_outline, color: sari.danger),
         ),
         const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('New item',
+              Text(context.l10n.text('newItem'),
                   style: TextStyle(
-                      color: AppColors.textWhite,
+                      color: scheme.onSurface,
                       fontSize: 15,
                       fontWeight: FontWeight.bold)),
               Text(
-                'Barcode "${widget.scannedCode}" — not in inventory yet.',
-                style: const TextStyle(
-                    color: AppColors.textMuted, fontSize: 12),
+                context.l10n.text(
+                  'newItemBarcode',
+                  values: {'barcode': widget.scannedCode},
+                ),
+                style: TextStyle(color: sari.mutedText, fontSize: 12),
               ),
             ],
           ),
@@ -931,52 +1197,63 @@ class _ScanResultCardState extends State<_ScanResultCard> {
         TextButton.icon(
           onPressed: () => widget.onActionChanged(_ScanAction.choose),
           icon: const Icon(Icons.arrow_back, size: 16),
-          label: const Text('Back'),
-          style: TextButton.styleFrom(foregroundColor: AppColors.mintIcon),
+          label: Text(context.l10n.text('back')),
+          style: TextButton.styleFrom(foregroundColor: sari.success),
         ),
         Text(
-          'Barcode: ${widget.scannedCode}',
-          style: const TextStyle(
-            color: AppColors.mintIcon,
+          context.l10n.text(
+            'barcodePrefix',
+            values: {'barcode': widget.scannedCode},
+          ),
+          style: TextStyle(
+            color: sari.success,
             fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 4),
-        const Text(
-          'Auto-filled from scan — no manual entry needed.',
-          style: TextStyle(color: AppColors.textFaint, fontSize: 11),
+        Text(
+          context.l10n.text('autoFilledFromScan'),
+          style: TextStyle(color: sari.faintText, fontSize: 11),
         ),
         const SizedBox(height: 8),
         TextField(
           controller: _nameController,
-          style: const TextStyle(color: AppColors.textWhite),
-          decoration: const InputDecoration(labelText: 'Product Name'),
+          style: TextStyle(color: scheme.onSurface),
+          decoration: InputDecoration(
+            labelText: context.l10n.text('productName'),
+          ),
         ),
         TextField(
           controller: _categoryController,
-          style: const TextStyle(color: AppColors.textWhite),
-          decoration: const InputDecoration(labelText: 'Category'),
+          style: TextStyle(color: scheme.onSurface),
+          decoration: InputDecoration(
+            labelText: context.l10n.text('category'),
+          ),
         ),
         Row(
           children: [
             Expanded(
               child: TextField(
                 controller: _priceController,
-                style: const TextStyle(color: AppColors.textWhite),
+                style: TextStyle(color: scheme.onSurface),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Price'),
+                decoration: InputDecoration(
+                  labelText: context.l10n.text('price'),
+                ),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: TextField(
                 controller: _stockController,
-                style: const TextStyle(color: AppColors.textWhite),
+                style: TextStyle(color: scheme.onSurface),
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  labelText: product != null ? 'Qty to add' : 'Initial Stock',
+                  labelText: product != null
+                      ? context.l10n.text('qtyToAdd')
+                      : context.l10n.text('initialStock'),
                 ),
               ),
             ),
@@ -1000,12 +1277,14 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                 onPressed: _saving ? null : _pickImage,
                 icon: const Icon(Icons.photo_camera_outlined, size: 18),
                 label: Text(
-                  _imageUrl.isEmpty ? 'Attach picture' : 'Change picture',
+                  context.l10n.text(
+                    _imageUrl.isEmpty ? 'attachPicture' : 'changePicture',
+                  ),
                   style: const TextStyle(fontSize: 13),
                 ),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.mintIcon,
-                  side: const BorderSide(color: AppColors.mintIcon),
+                  foregroundColor: sari.success,
+                  side: BorderSide(color: sari.success),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
@@ -1018,7 +1297,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
           child: ElevatedButton(
             onPressed: _saving ? null : _onSubmitInventory,
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accentOrange,
+              backgroundColor: sari.warning,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
@@ -1030,9 +1309,13 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : Text(
-                    product != null ? 'Save to Inventory' : 'Register Item',
-                    style: const TextStyle(
-                      color: AppColors.darkGreenTop,
+                    context.l10n.text(
+                      product != null
+                          ? 'saveToInventoryButton'
+                          : 'registerItem',
+                    ),
+                    style: TextStyle(
+                      color: sari.onAccent,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1050,15 +1333,15 @@ class _ScanResultCardState extends State<_ScanResultCard> {
           child: TextButton.icon(
             onPressed: () => widget.onActionChanged(_ScanAction.choose),
             icon: const Icon(Icons.arrow_back, size: 16),
-            label: const Text('Back'),
-            style: TextButton.styleFrom(foregroundColor: AppColors.mintIcon),
+            label: Text(context.l10n.text('back')),
+            style: TextButton.styleFrom(foregroundColor: sari.success),
           ),
         ),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('Quantity:',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+            Text(context.l10n.text('quantityLabel'),
+                style: TextStyle(color: sari.mutedText, fontSize: 13)),
             const SizedBox(width: 16),
             _stepperButton(Icons.remove, () {
               if (_quantity > 1) setState(() => _quantity--);
@@ -1066,8 +1349,8 @@ class _ScanResultCardState extends State<_ScanResultCard> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text('$_quantity',
-                  style: const TextStyle(
-                      color: AppColors.textWhite,
+                  style: TextStyle(
+                      color: scheme.onSurface,
                       fontSize: 16,
                       fontWeight: FontWeight.bold)),
             ),
@@ -1080,25 +1363,30 @@ class _ScanResultCardState extends State<_ScanResultCard> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Available: ${product.stock} · Line total: ₱${(product.price * _quantity).toStringAsFixed(2)}',
-          style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+          context.l10n.text(
+            'availableLineTotal',
+            values: {
+              'stock': '${product.stock}',
+              'total': (product.price * _quantity).toStringAsFixed(2),
+            },
+          ),
+          style: TextStyle(color: sari.mutedText, fontSize: 12),
         ),
         const SizedBox(height: 14),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: product.stock <= 0 || _saving ? null : _onCheckoutAdd,
-            icon: const Icon(Icons.add_shopping_cart,
-                size: 18, color: AppColors.darkGreenTop),
+            icon: Icon(Icons.add_shopping_cart, size: 18, color: sari.onAccent),
             label: Text(
               product.stock <= 0 ? 'Out of stock' : 'Add to Cart',
-              style: const TextStyle(
-                color: AppColors.darkGreenTop,
+              style: TextStyle(
+                color: sari.onAccent,
                 fontWeight: FontWeight.bold,
               ),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accentOrange,
+              backgroundColor: sari.warning,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
@@ -1109,7 +1397,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
           onPressed: widget.onOpenCart,
           child: Text(
             'View cart (${CartStore.instance.itemCount}) · ₱${CartStore.instance.subtotal.toStringAsFixed(2)}',
-            style: const TextStyle(color: AppColors.mintIcon),
+            style: TextStyle(color: sari.success),
           ),
         ),
       ],
@@ -1123,10 +1411,10 @@ class _ScanResultCardState extends State<_ScanResultCard> {
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: AppColors.fieldGreen.withValues(alpha: 0.6),
+          color: sari.fieldFill.withValues(alpha: 0.6),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, size: 18, color: AppColors.textWhite),
+        child: Icon(icon, size: 18, color: scheme.onSurface),
       ),
     );
   }
