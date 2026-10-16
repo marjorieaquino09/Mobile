@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_text_field.dart';
+import '../../core/widgets/confirm_dialog.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/loading_indicator.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/product.dart';
 import '../../services/firebase_service.dart';
+import '../../services/notification_store.dart';
+import '../../services/product_repository.dart';
 import '../../services/settings_store.dart';
-import '../../theme/app_theme.dart';
 import '../../widgets/stat_card.dart';
 import '../home/product_detail_screen.dart';
-import '../scan/scan_screen.dart';
 
 class InventoryScreen extends StatefulWidget {
   final String? userName;
@@ -22,14 +30,61 @@ class InventoryScreen extends StatefulWidget {
 }
 
 class _InventoryScreenState extends State<InventoryScreen> {
-  final FirebaseService _firebaseService = FirebaseService();
+  final ProductRepository _products = ProductRepository.instance;
+  final FirebaseService _firebase = FirebaseService();
+  late Stream<List<Product>> _productStream;
   final _searchController = TextEditingController();
   String _storeName = 'Loading...';
 
   @override
   void initState() {
     super.initState();
+    _productStream = _products.watchProducts();
     _fetchStoreName();
+  }
+
+  void _retryProducts() {
+    setState(() {
+      _productStream = _products.watchProducts();
+    });
+  }
+
+  int _bestSellerQuantity(
+    List<Product> products,
+    QuerySnapshot? orders,
+  ) {
+    final productKeys = <String, String>{};
+    for (final product in products) {
+      final key = product.id;
+      if (product.barcode.isNotEmpty) {
+        productKeys[product.barcode.toLowerCase()] = key;
+      }
+      productKeys[key.toLowerCase()] = key;
+    }
+
+    final quantities = <String, int>{};
+    for (final order in orders?.docs ?? const []) {
+      final data = order.data();
+      if (data is! Map<String, dynamic>) continue;
+      final items = data['items'];
+      if (items is! List) continue;
+      for (final rawItem in items) {
+        if (rawItem is! Map) continue;
+        final item = Map<String, dynamic>.from(rawItem);
+        final barcode =
+            (item['barcode'] ?? item['id'] ?? '').toString().toLowerCase();
+        final productKey = productKeys[barcode];
+        if (productKey == null) continue;
+        final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+        quantities.update(
+          productKey,
+          (previous) => previous + quantity,
+          ifAbsent: () => quantity,
+        );
+      }
+    }
+    return quantities.values
+        .fold<int>(0, (best, quantity) => quantity > best ? quantity : best);
   }
 
   Future<void> _fetchStoreName() async {
@@ -42,16 +97,19 @@ class _InventoryScreenState extends State<InventoryScreen> {
             .get();
 
         if (doc.exists && doc.data() != null) {
+          if (!mounted) return;
           setState(() {
             _storeName = doc.data()!['storeName'] ?? 'Sari-Sari Store';
           });
         }
       } catch (e) {
+        if (!mounted) return;
         setState(() {
           _storeName = widget.userName ?? 'Sari-Sari Store';
         });
       }
     } else {
+      if (!mounted) return;
       setState(() {
         _storeName = widget.userName ?? 'Sari-Sari Store';
       });
@@ -65,12 +123,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Color _getStockColor(int stock) {
+    final sari = context.sari;
     if (stock == 0) {
-      return AppColors.accentRed;
+      return sari.danger;
     } else if (stock <= 5) {
-      return AppColors.accentOrange;
+      return sari.accentAmber;
     } else {
-      return AppColors.mintIcon;
+      return sari.success;
     }
   }
 
@@ -87,12 +146,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
         TextEditingController(text: product.price.toStringAsFixed(2));
     final stockController =
         TextEditingController(text: product.stock.toString());
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final sari = context.sari;
 
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogCtx) {
         return AlertDialog(
-          backgroundColor: AppColors.darkGreenMid,
+          backgroundColor: sari.cardSurface,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           title: Column(
@@ -100,67 +162,58 @@ class _InventoryScreenState extends State<InventoryScreen> {
             children: [
               Text(
                 product.name,
-                style: const TextStyle(
-                    color: AppColors.textWhite, fontSize: 18),
+                style: GoogleFonts.outfit(
+                  color: scheme.onSurface,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Quick update price and stock',
-                style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+              Text(
+                context.l10n.text('quickUpdatePriceStock'),
+                style: GoogleFonts.outfit(
+                  color: sari.mutedText,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
+              AppTextField(
                 controller: priceController,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(color: AppColors.textWhite),
-                decoration: InputDecoration(
-                  labelText:
-                      'Price (${SettingsStore.instance.currencySymbol})',
-                  prefixIcon: const Icon(Icons.payments_outlined,
-                      color: AppColors.mintIcon),
-                  labelStyle: const TextStyle(color: AppColors.textMuted),
-                  filled: true,
-                  fillColor: AppColors.fieldGreen.withValues(alpha: 0.45),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
+                hintText: context.l10n.text(
+                  'priceLabel',
+                  values: {'symbol': SettingsStore.instance.currencySymbol},
                 ),
+                prefixIcon: Icons.payments_outlined,
               ),
               const SizedBox(height: 12),
-              TextField(
+              AppTextField(
                 controller: stockController,
                 keyboardType: TextInputType.number,
-                style: const TextStyle(color: AppColors.textWhite),
-                decoration: InputDecoration(
-                  labelText: 'Stock quantity',
-                  prefixIcon: const Icon(Icons.layers_outlined,
-                      color: AppColors.mintIcon),
-                  labelStyle: const TextStyle(color: AppColors.textMuted),
-                  filled: true,
-                  fillColor: AppColors.fieldGreen.withValues(alpha: 0.45),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
+                hintText: context.l10n.text('stockQuantity'),
+                prefixIcon: Icons.layers_outlined,
               ),
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pop(dialogCtx);
                     _openFullEdit(product);
                   },
-                  child: const Text('Edit all details',
-                      style: TextStyle(
-                          color: AppColors.accentOrange, fontSize: 13)),
+                  child: Text(
+                    context.l10n.text('editAllDetails'),
+                    style: GoogleFonts.outfit(
+                      color: sari.accentAmber,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -168,33 +221,93 @@ class _InventoryScreenState extends State<InventoryScreen> {
           actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel',
-                  style: TextStyle(color: AppColors.textMuted)),
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: Text(
+                context.l10n.text('cancel'),
+                style: GoogleFonts.outfit(color: sari.mutedText),
+              ),
             ),
             ElevatedButton(
               onPressed: () async {
-                final newPrice =
-                    double.tryParse(priceController.text) ?? product.price;
-                final newStock =
-                    int.tryParse(stockController.text) ?? product.stock;
+                final parsedPrice = double.tryParse(priceController.text.trim());
+                final parsedStock = int.tryParse(stockController.text.trim());
+                if (parsedPrice == null || parsedPrice < 0) {
+                  if (dialogCtx.mounted) {
+                    ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                      SnackBar(
+                        content: Text(context.l10n.text('invalidPrice')),
+                        backgroundColor: sari.danger,
+                      ),
+                    );
+                  }
+                  return;
+                }
+                if (parsedStock == null || parsedStock < 0) {
+                  if (dialogCtx.mounted) {
+                    ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                      SnackBar(
+                        content: Text(context.l10n.text('quantityMinimum')),
+                        backgroundColor: sari.danger,
+                      ),
+                    );
+                  }
+                  return;
+                }
 
                 final updated = Product(
                   id: product.id,
                   name: product.name,
+                  size: product.size,
                   category: product.category,
                   sku: product.sku,
-                  price: newPrice,
-                  stock: newStock,
+                  price: parsedPrice,
+                  stock: parsedStock,
                   imageUrl: product.imageUrl,
                   barcode: product.barcode,
+                  catalogProductId: product.catalogProductId.isNotEmpty
+                      ? product.catalogProductId
+                      : (product.isCatalogOnly ? product.id : ''),
                 );
 
-                await _firebaseService.updateProduct(product.barcode, updated);
-
-                if (context.mounted) Navigator.pop(context);
+                try {
+                  await _products.updateProduct(
+                    product.barcode,
+                    updated,
+                    oldInventoryId: product.id,
+                  );
+                  await NotificationStore.instance.addInventoryEvent(
+                    action: 'edited',
+                    productName: updated.name,
+                    stock: updated.stock,
+                  );
+                  if (updated.isLowStock || updated.isOutOfStock) {
+                    await NotificationStore.instance.addLowStockAlert(
+                      productName: updated.name,
+                      stock: updated.stock,
+                    );
+                  }
+                  if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                } catch (e) {
+                  if (!dialogCtx.mounted) return;
+                  ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                    SnackBar(
+                      content: Text(context.l10n.text(
+                        'failed',
+                        values: {'error': '$e'},
+                      )),
+                      backgroundColor: sari.danger,
+                    ),
+                  );
+                }
               },
-              child: const Text('Save'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+              ),
+              child: Text(context.l10n.text('save')),
             ),
           ],
         );
@@ -203,148 +316,322 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Future<void> _deleteProduct(Product product) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkGreenMid,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: const Text('Remove this product?',
-            style: TextStyle(color: AppColors.textWhite)),
-        content: Text(
-          '“${product.name}” will be deleted from your store.',
-          style: const TextStyle(color: AppColors.textMuted),
+    final confirm = await ConfirmDialog.show(
+      context,
+      title: context.l10n.text('removeProductTitle'),
+      message: context.l10n
+          .text('removeProductMessage', values: {'name': product.name}),
+      confirmLabel: context.l10n.text('remove'),
+      cancelLabel: context.l10n.text('keep'),
+      isDestructive: true,
+    );
+
+    if (confirm != true) return;
+    try {
+      await _products.deleteProduct(product);
+      await NotificationStore.instance.addInventoryEvent(
+        action: 'deleted',
+        productName: product.name,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.text('productRemoved'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.l10n.text(
+            'failed',
+            values: {'error': '$e'},
+          )),
+          backgroundColor: context.sari.danger,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Keep',
-                style: TextStyle(color: AppColors.textMuted)),
+      );
+    }
+  }
+
+  /// Fixed-width edit + delete so both stay visible on narrow phones.
+  Widget _productActions(Product product, ColorScheme scheme, SariColors sari) {
+    const tap = 40.0;
+    return SizedBox(
+      width: tap * 2 + 8,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          IconButton(
+            onPressed: () => _showQuickEditDialog(product),
+            tooltip: context.l10n.text('edit'),
+            icon: Icon(Icons.edit_outlined, size: 20, color: scheme.primary),
+            constraints: const BoxConstraints(minWidth: tap, minHeight: tap),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accentRed,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(110, 44),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: () => _deleteProduct(product),
+            tooltip: context.l10n.text('remove'),
+            icon: Icon(
+              Icons.delete_outline_rounded,
+              size: 20,
+              color: sari.danger,
             ),
-            child: const Text('Remove'),
+            constraints: const BoxConstraints(minWidth: tap, minHeight: tap),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
           ),
         ],
       ),
     );
+  }
 
-    if (confirm == true) {
-      await _firebaseService.deleteProduct(product.barcode);
+  Widget _stockChip(int stock, Color stockColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: stockColor.withValues(alpha: 0.18),
+        border: Border.all(
+          color: stockColor.withValues(alpha: 0.6),
+          width: 1,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '$stock',
+        style: GoogleFonts.outfit(
+          color: stockColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _productListRow({
+    required Product product,
+    required bool narrow,
+    required ColorScheme scheme,
+    required SariColors sari,
+  }) {
+    final stockColor = _getStockColor(product.stock);
+    final actions = _productActions(product, scheme, sari);
+    final nameStyle = GoogleFonts.outfit(
+      color: scheme.onSurface,
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+    );
+    final metaStyle = GoogleFonts.outfit(
+      color: sari.faintText,
+      fontSize: 11,
+    );
+    final priceStyle = GoogleFonts.outfit(
+      color: scheme.onSurface,
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+    );
+
+    if (narrow) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    product.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: nameStyle,
+                  ),
+                ),
+                actions,
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    product.barcode.isNotEmpty ? product.barcode : '—',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: metaStyle,
+                  ),
+                ),
+                Text(
+                  SettingsStore.instance.formatMoney(product.price),
+                  style: priceStyle,
+                ),
+                const SizedBox(width: 10),
+                _stockChip(product.stock, stockColor),
+              ],
+            ),
+          ],
+        ),
+      );
     }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(
+              product.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: nameStyle,
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              product.barcode.isNotEmpty ? product.barcode : '—',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: metaStyle,
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              SettingsStore.instance.formatMoney(product.price),
+              style: priceStyle,
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _stockChip(product.stock, stockColor),
+            ),
+          ),
+          actions,
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration:
-          const BoxDecoration(gradient: AppColors.darkBackgroundGradient),
-      child: SafeArea(
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final sari = context.sari;
+
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const CircleAvatar(
-                    radius: 18,
-                    backgroundColor: AppColors.fieldGreen,
-                    child: Icon(Icons.store, color: AppColors.textWhite, size: 18),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    _storeName,
-                    style: const TextStyle(
-                      color: AppColors.textWhite,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: sari.fieldFill,
+                    child: Icon(
+                      Icons.storefront_rounded,
+                      color: scheme.primary,
+                      size: 20,
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              const Text(
-                'Manage Your Sari-Sari Store',
-                style: TextStyle(
-                    color: AppColors.accentOrange,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 40,
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (_) => setState(() {}),
-                  style: const TextStyle(
-                      color: AppColors.textWhite, fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText: 'Search all items or barcodes',
-                    hintStyle: const TextStyle(
-                        color: AppColors.textFaint, fontSize: 12),
-                    prefixIcon: const Icon(Icons.search,
-                        color: AppColors.textFaint, size: 18),
-                    suffixIcon: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (_searchController.text.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.clear,
-                                color: AppColors.textFaint, size: 16),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {});
-                            },
+                        Text(
+                          _storeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: scheme.onSurface,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
                           ),
-                        IconButton(
-                          icon: const Icon(Icons.qr_code_scanner,
-                              color: AppColors.mintIcon, size: 18),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                      const ScanScreen(showBackButton: true)),
-                            );
-                          },
+                        ),
+                        Text(
+                          context.l10n.text('manageStore'),
+                          style: GoogleFonts.outfit(
+                            color: sari.mutedText,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
-                    contentPadding: EdgeInsets.zero,
-                    filled: true,
-                    fillColor: AppColors.fieldGreen.withValues(alpha: 0.6),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                      borderSide: BorderSide(
-                          color: AppColors.mintIcon.withValues(alpha: 0.3)),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.add_circle_outline_rounded,
+                      color: sari.accentAmber,
+                      size: 24,
                     ),
+                    tooltip: context.l10n.text('addItem'),
+                    onPressed: _openAddProduct,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Search input
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                style: GoogleFonts.outfit(
+                  color: scheme.onSurface,
+                  fontSize: 14,
+                ),
+                decoration: InputDecoration(
+                  hintText: context.l10n.text('searchItems'),
+                  hintStyle: GoogleFonts.outfit(
+                    color: sari.faintText,
+                    fontSize: 13,
+                  ),
+                  prefixIcon:
+                      Icon(Icons.search, color: sari.mutedText, size: 20),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: Icon(Icons.clear,
+                              color: sari.mutedText, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: sari.fieldFill,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                    borderSide: BorderSide.none,
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Expanded(
                 child: StreamBuilder<List<Product>>(
-                  stream: _firebaseService.watchProducts(),
+                  stream: _productStream,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting &&
-                        !snapshot.hasData) {
-                      return const Center(
-                        child: CircularProgressIndicator(
-                            color: AppColors.mintIcon),
-                      );
+                        !snapshot.hasData &&
+                        !snapshot.hasError) {
+                      return const LoadingIndicator();
                     }
 
                     if (snapshot.hasError) {
-                      return Center(
-                        child: Text(
-                          'May error: ${snapshot.error}',
-                          style: const TextStyle(color: AppColors.textMuted),
-                        ),
+                      return EmptyState(
+                        icon: Icons.error_outline_rounded,
+                        title: context.l10n.text('inventoryLoadFailed'),
+                        message: '${snapshot.error}',
+                        actionLabel: context.l10n.text('tryAgain'),
+                        onAction: _retryProducts,
                       );
                     }
 
@@ -358,8 +645,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     }).toList();
 
                     final totalItems = products.length;
-                    final lowStock =
-                        products.where((p) => p.isLowStock).length;
+                    final lowStock = products.where((p) => p.isLowStock).length;
                     final outOfStock =
                         products.where((p) => p.isOutOfStock).length;
 
@@ -369,308 +655,192 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         Row(
                           children: [
                             Expanded(
-                                child: StatCard(
-                                    label: 'Total Items',
-                                    value: '$totalItems')),
-                            const SizedBox(width: 8),
+                              child: StatCard(
+                                label: context.l10n.text('totalItemsStat'),
+                                value: '$totalItems',
+                                icon: Icons.inventory_2_outlined,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
                             Expanded(
-                                child: StatCard(
-                                    label: 'Low Stock', value: '$lowStock')),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Expanded(
-                                child: StatCard(
-                                    label: 'Best Sellers', value: '0')),
-                            const SizedBox(width: 8),
-                            Expanded(
-                                child: StatCard(
-                                    label: 'Out of Stock',
-                                    value: '$outOfStock')),
+                              child: StatCard(
+                                label: context.l10n.text('lowStockStat'),
+                                value: '$lowStock',
+                                valueColor:
+                                    lowStock > 0 ? sari.accentAmber : null,
+                                icon: Icons.warning_amber_rounded,
+                                iconColor: sari.accentAmber,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: StreamBuilder<QuerySnapshot>(
+                                stream: _firebase.getOrdersStream(limit: 200),
+                                builder: (context, ordersSnapshot) {
+                                  final value = ordersSnapshot.hasError
+                                      ? '—'
+                                      : '${_bestSellerQuantity(
+                                          products,
+                                          ordersSnapshot.data,
+                                        )}';
+                                  return StatCard(
+                                    label: context.l10n.text('bestSellersStat'),
+                                    value: value,
+                                    icon: Icons.trending_up_rounded,
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: StatCard(
+                                label: context.l10n.text('outOfStockStat'),
+                                value: '$outOfStock',
+                                valueColor: outOfStock > 0 ? sari.danger : null,
+                                icon: Icons.remove_circle_outline_rounded,
+                                iconColor: sari.danger,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
                         Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                  color: AppColors.mintIcon
-                                      .withValues(alpha: 0.3)),
-                            ),
-                            child: Column(
-                              children: [
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(
-                                      horizontal: 4, vertical: 2),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                          flex: 3,
-                                          child: Text('ITEM',
-                                              style: TextStyle(
-                                                  color: AppColors.textFaint,
-                                                  fontSize: 10))),
-                                      Expanded(
-                                          flex: 2,
-                                          child: Text('CODE',
-                                              style: TextStyle(
-                                                  color: AppColors.textFaint,
-                                                  fontSize: 10))),
-                                      Expanded(
-                                          flex: 2,
-                                          child: Text('PRICE',
-                                              style: TextStyle(
-                                                  color: AppColors.textFaint,
-                                                  fontSize: 10))),
-                                      Expanded(
-                                          flex: 2,
-                                          child: Text('STOCK',
-                                              style: TextStyle(
-                                                  color: AppColors.textFaint,
-                                                  fontSize: 10))),
-                                      Expanded(
-                                          flex: 3,
-                                          child: Text('ACTIONS',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                  color: AppColors.textFaint,
-                                                  fontSize: 10))),
-                                    ],
-                                  ),
-                                ),
-                                const Divider(
-                                    color: AppColors.mintIcon,
-                                    thickness: 0.15,
-                                    height: 8),
-                                Expanded(
-                                  child: filteredProducts.isEmpty
-                                      ? const Center(
-                                          child: Text(
-                                            'Walang products',
-                                            style: TextStyle(
-                                                color: AppColors.textMuted),
-                                          ),
-                                        )
-                                      : ListView.builder(
-                                          itemCount: filteredProducts.length,
-                                          itemBuilder: (context, index) {
-                                            final p = filteredProducts[index];
-                                            final stockColor =
-                                                _getStockColor(p.stock);
+                          child: AppCard(
+                            padding: const EdgeInsets.all(10),
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                // Card-style rows below ~400 logical px so
+                                // edit+delete never clip at 320/360/411 dp.
+                                final narrow = constraints.maxWidth < 400;
+                                final headerStyle = GoogleFonts.outfit(
+                                  color: sari.mutedText,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                );
 
-                                            return Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 8,
-                                                      horizontal: 4),
-                                              child: Row(
-                                                children: [
-                                                  Expanded(
-                                                      flex: 3,
-                                                      child: Text(p.name,
-                                                          style: const TextStyle(
-                                                              color: AppColors
-                                                                  .textWhite,
-                                                              fontSize: 12))),
-                                                  Expanded(
-                                                      flex: 2,
-                                                      child: Text(p.barcode,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style: const TextStyle(
-                                                              color: AppColors
-                                                                  .textFaint,
-                                                              fontSize: 11))),
-                                                  Expanded(
-                                                      flex: 2,
-                                                      child: Text(
-                                                          SettingsStore.instance
-                                                              .formatMoney(
-                                                                  p.price),
-                                                          style: const TextStyle(
-                                                              color: AppColors
-                                                                  .textMuted,
-                                                              fontSize: 11))),
-                                                  Expanded(
-                                                    flex: 2,
-                                                    child: Align(
-                                                      alignment:
-                                                          Alignment.centerLeft,
-                                                      child: Container(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .symmetric(
-                                                                horizontal: 6,
-                                                                vertical: 2),
-                                                        decoration:
-                                                            BoxDecoration(
-                                                          color: stockColor
-                                                              .withValues(
-                                                                  alpha: 0.2),
-                                                          border: Border.all(
-                                                              color: stockColor
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.6),
-                                                              width: 1),
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(6),
-                                                        ),
-                                                        child: Text(
-                                                          '${p.stock}',
-                                                          style: TextStyle(
-                                                            color: stockColor,
-                                                            fontSize: 11,
-                                                            fontWeight:
-                                                                FontWeight.bold,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
+                                return Column(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 4,
+                                      ),
+                                      child: narrow
+                                          ? Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('colItem'),
+                                                    style: headerStyle,
                                                   ),
-                                                  Expanded(
-                                                    flex: 3,
-                                                    child: Row(
-                                                      mainAxisAlignment:
-                                                          MainAxisAlignment
-                                                              .center,
-                                                      children: [
-                                                        Material(
-                                                          color: Colors
-                                                              .transparent,
-                                                          child: InkWell(
-                                                            onTap: () =>
-                                                                _showQuickEditDialog(
-                                                                    p),
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                        10),
-                                                            child: Container(
-                                                              constraints:
-                                                                  const BoxConstraints(
-                                                                minWidth: 44,
-                                                                minHeight: 44,
-                                                              ),
-                                                              padding:
-                                                                  const EdgeInsets
-                                                                      .symmetric(
-                                                                horizontal: 10,
-                                                                vertical: 8,
-                                                              ),
-                                                              alignment:
-                                                                  Alignment
-                                                                      .center,
-                                                              decoration:
-                                                                  BoxDecoration(
-                                                                color: AppColors
-                                                                    .accentOrange,
-                                                                borderRadius:
-                                                                    BorderRadius
-                                                                        .circular(
-                                                                            10),
-                                                              ),
-                                                              child:
-                                                                  const Icon(
-                                                                Icons
-                                                                    .edit_outlined,
-                                                                size: 18,
-                                                                color: AppColors
-                                                                    .darkGreenTop,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        Container(
-                                                          width: 1,
-                                                          height: 28,
-                                                          margin:
-                                                              const EdgeInsets
-                                                                  .symmetric(
-                                                                  horizontal:
-                                                                      10),
-                                                          color: AppColors
-                                                              .mintIcon
-                                                              .withValues(
-                                                                  alpha: 0.35),
-                                                        ),
-                                                        Material(
-                                                          color: Colors
-                                                              .transparent,
-                                                          child: InkWell(
-                                                            onTap: () =>
-                                                                _deleteProduct(
-                                                                    p),
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                        10),
-                                                            child: Container(
-                                                              constraints:
-                                                                  const BoxConstraints(
-                                                                minWidth: 44,
-                                                                minHeight: 44,
-                                                              ),
-                                                              alignment:
-                                                                  Alignment
-                                                                      .center,
-                                                              decoration:
-                                                                  BoxDecoration(
-                                                                color: AppColors
-                                                                    .accentRed
-                                                                    .withValues(
-                                                                        alpha:
-                                                                            0.18),
-                                                                borderRadius:
-                                                                    BorderRadius
-                                                                        .circular(
-                                                                            10),
-                                                              ),
-                                                              child: Icon(
-                                                                Icons
-                                                                    .delete_outline,
-                                                                size: 20,
-                                                                color: AppColors
-                                                                    .accentRed
-                                                                    .withValues(
-                                                                        alpha:
-                                                                            0.95),
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
+                                                ),
+                                                SizedBox(
+                                                  width: 88,
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('colActions'),
+                                                    textAlign: TextAlign.end,
+                                                    style: headerStyle,
                                                   ),
-                                                ],
+                                                ),
+                                              ],
+                                            )
+                                          : Row(
+                                              children: [
+                                                Expanded(
+                                                  flex: 4,
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('colItem'),
+                                                    style: headerStyle,
+                                                  ),
+                                                ),
+                                                Expanded(
+                                                  flex: 2,
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('colCode'),
+                                                    style: headerStyle,
+                                                  ),
+                                                ),
+                                                Expanded(
+                                                  flex: 2,
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('colPrice'),
+                                                    style: headerStyle,
+                                                  ),
+                                                ),
+                                                Expanded(
+                                                  flex: 2,
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('colStock'),
+                                                    style: headerStyle,
+                                                  ),
+                                                ),
+                                                SizedBox(
+                                                  width: 88,
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('colActions'),
+                                                    textAlign: TextAlign.end,
+                                                    style: headerStyle,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                    ),
+                                    Divider(
+                                      color: sari.cardBorder,
+                                      thickness: 1,
+                                      height: 8,
+                                    ),
+                                    Expanded(
+                                      child: filteredProducts.isEmpty
+                                          ? Center(
+                                              child: Text(
+                                                context.l10n
+                                                    .text('noProducts'),
+                                                style: GoogleFonts.outfit(
+                                                  color: sari.mutedText,
+                                                  fontSize: 14,
+                                                ),
                                               ),
-                                            );
-                                          },
-                                        ),
-                                ),
-                              ],
+                                            )
+                                          : ListView.separated(
+                                              physics:
+                                                  const BouncingScrollPhysics(),
+                                              itemCount:
+                                                  filteredProducts.length,
+                                              separatorBuilder: (_, __) =>
+                                                  Divider(
+                                                color: sari.cardBorder,
+                                                height: 1,
+                                                thickness: 0.5,
+                                              ),
+                                              itemBuilder: (context, index) {
+                                                return _productListRow(
+                                                  product:
+                                                      filteredProducts[index],
+                                                  narrow: narrow,
+                                                  scheme: scheme,
+                                                  sari: sari,
+                                                );
+                                              },
+                                            ),
+                                    ),
+                                  ],
+                                );
+                              },
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: ElevatedButton.icon(
-                            onPressed: _openAddProduct,
-                            icon: const Icon(Icons.add, size: 16),
-                            label: const Text('Add Item',
-                                style: TextStyle(fontSize: 12)),
-                            style: ElevatedButton.styleFrom(
-                                minimumSize: const Size(120, 38)),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
                       ],
                     );
                   },
