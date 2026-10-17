@@ -1,4 +1,14 @@
-enum NotificationType { lowStock, payment, creditOverdue, orderReady }
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../l10n/app_localizations.dart';
+
+enum NotificationType {
+  lowStock,
+  payment,
+  creditOverdue,
+  orderReady,
+  inventory,
+  transaction,
+}
 
 class NotificationItem {
   final String id;
@@ -18,6 +28,8 @@ class NotificationItem {
     this.unread = true,
     this.createdAt,
   });
+
+  bool get isRead => !unread;
 
   NotificationItem copyWith({
     String? id,
@@ -46,7 +58,17 @@ class NotificationItem {
         'timeAgo': timeAgo,
         'type': type.name,
         'unread': unread,
+        'isRead': isRead,
         'createdAt': createdAt?.toIso8601String(),
+      };
+
+  Map<String, dynamic> toFirestore() => {
+        'title': title,
+        'subtitle': subtitle,
+        'type': type.name,
+        'isRead': isRead,
+        'timeAgo': timeAgo,
+        'createdAt': FieldValue.serverTimestamp(),
       };
 
   factory NotificationItem.fromMap(Map<String, dynamic> map) {
@@ -57,27 +79,42 @@ class NotificationItem {
     );
     DateTime? created;
     final rawCreated = map['createdAt'];
-    if (rawCreated is String && rawCreated.isNotEmpty) {
+    if (rawCreated is Timestamp) {
+      created = rawCreated.toDate();
+    } else if (rawCreated is String && rawCreated.isNotEmpty) {
       created = DateTime.tryParse(rawCreated);
     }
+    final isRead = map['isRead'] == true || map['unread'] == false;
     return NotificationItem(
       id: (map['id'] ?? '').toString(),
       title: (map['title'] ?? '').toString(),
       subtitle: (map['subtitle'] ?? '').toString(),
       timeAgo: (map['timeAgo'] ?? '').toString(),
       type: type,
-      unread: map['unread'] != false,
+      unread: !isRead,
       createdAt: created,
     );
   }
 
-  String get displayTime {
-    if (createdAt == null) return timeAgo;
+  factory NotificationItem.fromFirestore(
+    String docId,
+    Map<String, dynamic> map,
+  ) {
+    return NotificationItem.fromMap({...map, 'id': docId});
+  }
+
+  String displayTime(AppLocalizations l10n) {
+    if (createdAt == null) {
+      return timeAgo == 'Just now' ? l10n.text('justNow') : timeAgo;
+    }
     final diff = DateTime.now().difference(createdAt!);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return timeAgo.isNotEmpty ? timeAgo : '${diff.inDays}d ago';
+    if (diff.inMinutes < 1) return l10n.text('justNow');
+    if (diff.inMinutes < 60) {
+      return l10n.text('minutesAgo', values: {'count': '${diff.inMinutes}'});
+    }
+    if (diff.inHours < 24) {
+      return l10n.text('hoursAgo', values: {'count': '${diff.inHours}'});
+    }
+    return l10n.text('daysAgo', values: {'count': '${diff.inDays}'});
   }
 }

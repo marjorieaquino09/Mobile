@@ -1,9 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/theme/theme_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/push_notification_service.dart';
 import '../../services/settings_store.dart';
+import '../../services/user_profile_store.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 
@@ -15,6 +17,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
   final SettingsStore _settings = SettingsStore.instance;
   bool _pushBusy = false;
 
@@ -46,10 +51,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
             decoration: BoxDecoration(
-              color: AppColors.darkGreenMid,
+              color: sari.cardSurfaceStrong,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: AppColors.mintIcon.withValues(alpha: 0.25),
+                color: sari.success.withValues(alpha: 0.25),
               ),
             ),
             child: Column(
@@ -62,15 +67,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     height: 4,
                     margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
-                      color: AppColors.textFaint.withValues(alpha: 0.55),
+                      color: sari.faintText.withValues(alpha: 0.55),
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),
                 ),
                 Text(
                   l10n.text('selectLanguage'),
-                  style: const TextStyle(
-                    color: AppColors.textWhite,
+                  style: TextStyle(
+                    color: scheme.onSurface,
                     fontSize: 17,
                     fontWeight: FontWeight.bold,
                   ),
@@ -92,17 +97,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             Expanded(
                               child: Text(
                                 l10n.languageName(code),
-                                style: const TextStyle(
-                                  color: AppColors.textWhite,
+                                style: TextStyle(
+                                  color: scheme.onSurface,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ),
                             if (code == _settings.languageCode)
-                              const Icon(
+                              Icon(
                                 Icons.check_rounded,
-                                color: AppColors.accentOrange,
+                                color: sari.warning,
                               ),
                           ],
                         ),
@@ -118,141 +123,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (selected != null) await _settings.setLanguage(selected);
   }
 
-  Future<void> _pickCurrency() async {
-    final l10n = context.l10n;
-    const options = ['PHP', 'USD', 'EUR', 'JPY'];
-    final selected = await showDialog<String>(
+  Future<void> _pickThemeMode() async {
+    final selected = await showModalBottomSheet<ThemeMode>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        backgroundColor: AppColors.darkGreenMid,
-        title: Text(
-          l10n.text('selectCurrency'),
-          style: const TextStyle(color: AppColors.textWhite),
-        ),
-        children: options
-            .map(
-              (code) => SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, code),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        code,
-                        style: const TextStyle(color: AppColors.textWhite),
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final l10n = ctx.l10n;
+        final sheetSari = ctx.sari;
+        final sheetScheme = Theme.of(ctx).colorScheme;
+        final options = <(ThemeMode, String)>[
+          (ThemeMode.system, l10n.text('themeSystem')),
+          (ThemeMode.light, l10n.text('themeLight')),
+          (ThemeMode.dark, l10n.text('themeDark')),
+        ];
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+            decoration: BoxDecoration(
+              color: sheetSari.cardSurfaceStrong,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: sheetSari.cardBorder),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: sheetSari.faintText.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                Text(
+                  l10n.text('selectAppearance'),
+                  style: TextStyle(
+                    color: sheetScheme.onSurface,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                for (final option in options)
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(ctx, option.$1),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                option.$2,
+                                style: TextStyle(
+                                  color: sheetScheme.onSurface,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (option.$1 == _settings.themeMode)
+                              Icon(
+                                Icons.check_rounded,
+                                color: sheetSari.warning,
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                    if (code == _settings.currencyCode)
-                      const Icon(Icons.check, color: AppColors.accentOrange),
-                  ],
-                ),
-              ),
-            )
-            .toList(),
-      ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
     if (selected != null) {
-      await _settings.setCurrency(selected);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              l10n.text(
-                'currencySet',
-                values: {'currency': _settings.currencyLabel},
-              ),
-            ),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _editExchangeRate() async {
-    final l10n = context.l10n;
-    if (_settings.currencyCode == 'PHP') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.text('phpExchangeRate'))),
-      );
-      return;
-    }
-    final controller = TextEditingController(
-      text: _settings.exchangeRate.toString(),
-    );
-    final result = await showDialog<double>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkGreenMid,
-        title: Text(
-          l10n.text(
-            'exchangeRateTitle',
-            values: {'currency': _settings.currencyCode},
-          ),
-          style: const TextStyle(color: AppColors.textWhite, fontSize: 16),
-        ),
-        content: TextField(
-          controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-          ],
-          style: const TextStyle(color: AppColors.textWhite),
-          decoration: InputDecoration(
-            labelText: l10n.text(
-              'exchangeRatePrompt',
-              values: {'currency': _settings.currencyCode},
-            ),
-            hintText:
-                SettingsStore.defaultRateFor(_settings.currencyCode).toString(),
-            labelStyle: const TextStyle(color: AppColors.textMuted),
-            filled: true,
-            fillColor: AppColors.fieldGreen.withValues(alpha: 0.35),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(
-              l10n.text('cancel'),
-              style: const TextStyle(color: AppColors.textMuted),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final value = double.tryParse(controller.text.trim());
-              if (value == null || value <= 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(l10n.text('validRate'))),
-                );
-                return;
-              }
-              Navigator.pop(ctx, value);
-            },
-            child: Text(l10n.text('save')),
-          ),
-        ],
-      ),
-    );
-    if (result != null) {
-      await _settings.setExchangeRate(result);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              l10n.text(
-                'rateSaved',
-                values: {
-                  'rate': _settings.exchangeRate.toString(),
-                  'currency': _settings.currencyCode,
-                },
-              ),
-            ),
-          ),
-        );
-      }
+      await ThemeController.instance.setThemeMode(selected);
     }
   }
 
@@ -263,10 +220,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final result = await showDialog<double>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkGreenMid,
+        backgroundColor: sari.cardSurfaceStrong,
         title: Text(
           l10n.text('taxRateTitle'),
-          style: const TextStyle(color: AppColors.textWhite),
+          style: TextStyle(color: scheme.onSurface),
         ),
         content: TextField(
           controller: controller,
@@ -274,13 +231,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           inputFormatters: [
             FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
           ],
-          style: const TextStyle(color: AppColors.textWhite),
+          style: TextStyle(color: scheme.onSurface),
           decoration: InputDecoration(
             labelText: l10n.text('percent'),
             suffixText: '%',
-            labelStyle: const TextStyle(color: AppColors.textMuted),
+            labelStyle: TextStyle(color: sari.mutedText),
             filled: true,
-            fillColor: AppColors.fieldGreen.withValues(alpha: 0.35),
+            fillColor: sari.fieldFill.withValues(alpha: 0.35),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide.none,
@@ -292,7 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: Text(
               l10n.text('cancel'),
-              style: const TextStyle(color: AppColors.textMuted),
+              style: TextStyle(color: sari.mutedText),
             ),
           ),
           ElevatedButton(
@@ -343,7 +300,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               content: Text(l10n.text('pushPermissionOff')),
               action: SnackBarAction(
                 label: l10n.text('open'),
-                textColor: AppColors.accentOrange,
+                textColor: sari.warning,
                 onPressed: () {
                   PushNotificationService.instance.openSystemSettings();
                 },
@@ -373,28 +330,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkGreenMid,
+        backgroundColor: sari.cardSurfaceStrong,
         title: Text(
           l10n.text('logOutTitle'),
-          style: const TextStyle(color: AppColors.textWhite),
+          style: TextStyle(color: scheme.onSurface),
         ),
         content: Text(
           l10n.text('logOutMessage'),
-          style: const TextStyle(color: AppColors.textMuted),
+          style: TextStyle(color: sari.mutedText),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(
               l10n.text('cancel'),
-              style: const TextStyle(color: AppColors.textMuted),
+              style: TextStyle(color: sari.mutedText),
             ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accentRed,
-              foregroundColor: Colors.white,
+              backgroundColor: sari.danger,
+              foregroundColor: scheme.onError,
             ),
             child: Text(l10n.text('logOut')),
           ),
@@ -406,6 +363,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await FirebaseAuth.instance.signOut();
     } catch (_) {}
+    UserProfileStore.instance.clear();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -417,8 +375,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration:
-            const BoxDecoration(gradient: AppColors.darkBackgroundGradient),
+        decoration: BoxDecoration(gradient: sari.screenGradient),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -429,16 +386,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_back,
-                          color: AppColors.textWhite),
+                      icon: Icon(Icons.arrow_back, color: scheme.onSurface),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                     Expanded(
                       child: Text(
                         context.l10n.text('settings'),
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppColors.textWhite,
+                        style: TextStyle(
+                          color: scheme.onSurface,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
@@ -463,7 +419,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 l10n.text('language'),
                                 l10n.text('languageSubtitle'),
                                 _pickLanguage,
-                                value: l10n.languageName(_settings.languageCode),
+                                value:
+                                    l10n.languageName(_settings.languageCode),
+                              ),
+                              Divider(
+                                color: sari.divider,
+                                thickness: 1,
+                                height: 24,
+                              ),
+                              _navRow(
+                                l10n.text('appearance'),
+                                l10n.text('appearanceSubtitle'),
+                                _pickThemeMode,
+                                value: l10n.themeModeName(
+                                  switch (_settings.themeMode) {
+                                    ThemeMode.light => 'light',
+                                    ThemeMode.dark => 'dark',
+                                    ThemeMode.system => 'system',
+                                  },
+                                ),
                               ),
                             ],
                           ),
@@ -476,8 +450,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 _showChangePassword,
                               ),
                               Divider(
-                                color: AppColors.mintIcon
-                                    .withValues(alpha: 0.15),
+                                color: sari.success.withValues(alpha: 0.15),
                                 thickness: 1,
                                 height: 24,
                               ),
@@ -505,37 +478,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _sectionLabel(l10n.text('storeSection')),
                           _tileCard(
                             children: [
-                              InkWell(
-                                onTap: _pickCurrency,
-                                borderRadius: BorderRadius.circular(8),
-                                child: _valueRow(
-                                  l10n.text('currency'),
-                                  l10n.text('currencySubtitle'),
-                                  _settings.currencyLabel,
-                                ),
+                              _valueRow(
+                                l10n.text('currency'),
+                                l10n.text('currencySubtitle'),
+                                '₱ PHP',
+                                showEdit: false,
                               ),
                               Divider(
-                                color: AppColors.mintIcon
-                                    .withValues(alpha: 0.15),
-                                thickness: 1,
-                                height: 24,
-                              ),
-                              InkWell(
-                                onTap: _editExchangeRate,
-                                borderRadius: BorderRadius.circular(8),
-                                child: _valueRow(
-                                  l10n.text('exchangeRate'),
-                                  _settings.currencyCode == 'PHP'
-                                      ? l10n.text('baseCurrency')
-                                      : '1 PHP → ${_settings.currencyCode}',
-                                  _settings.currencyCode == 'PHP'
-                                      ? '1.0'
-                                      : _settings.exchangeRate.toString(),
-                                ),
-                              ),
-                              Divider(
-                                color: AppColors.mintIcon
-                                    .withValues(alpha: 0.15),
+                                color: sari.success.withValues(alpha: 0.15),
                                 thickness: 1,
                                 height: 24,
                               ),
@@ -562,8 +512,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 _pushBusy ? null : _onPushChanged,
                               ),
                               Divider(
-                                color: AppColors.mintIcon
-                                    .withValues(alpha: 0.15),
+                                color: sari.success.withValues(alpha: 0.15),
                                 thickness: 1,
                                 height: 24,
                               ),
@@ -574,8 +523,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 (v) => _settings.setEmailAlerts(v),
                               ),
                               Divider(
-                                color: AppColors.mintIcon
-                                    .withValues(alpha: 0.15),
+                                color: sari.success.withValues(alpha: 0.15),
                                 thickness: 1,
                                 height: 24,
                               ),
@@ -593,27 +541,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             height: 50,
                             child: TextButton.icon(
                               onPressed: _logout,
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.logout_rounded,
-                                color: Color(0xFFFF9E9E),
+                                color: sari.logoutForeground,
                                 size: 18,
                               ),
                               label: Text(
                                 l10n.text('logOut'),
-                                style: const TextStyle(
-                                  color: Color(0xFFFF9E9E),
+                                style: TextStyle(
+                                  color: sari.logoutForeground,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
                                 ),
                               ),
                               style: TextButton.styleFrom(
-                                backgroundColor:
-                                    const Color(0xFF381B1B).withValues(alpha: 0.85),
+                                backgroundColor: sari.logoutBackground,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                   side: BorderSide(
-                                    color: AppColors.accentRed
-                                        .withValues(alpha: 0.5),
+                                    color: sari.danger.withValues(alpha: 0.5),
                                   ),
                                 ),
                               ),
@@ -639,74 +585,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final controller = TextEditingController();
     final confirm = TextEditingController();
     var saving = false;
-    var obscure = true;
+    var obscureCurrent = true;
+    var obscureNew = true;
+    var obscureConfirm = true;
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           return AlertDialog(
-            backgroundColor: AppColors.darkGreenMid,
+            backgroundColor: sari.cardSurfaceStrong,
             title: Text(
               l10n.text('changePassword'),
-              style: const TextStyle(color: AppColors.textWhite),
+              style: TextStyle(color: scheme.onSurface),
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: currentController,
-                  obscureText: obscure,
-                  style: const TextStyle(color: AppColors.textWhite),
+                  obscureText: obscureCurrent,
+                  style: TextStyle(color: scheme.onSurface),
                   decoration: InputDecoration(
                     labelText: l10n.text('currentPassword'),
-                    labelStyle: const TextStyle(color: AppColors.textMuted),
+                    labelStyle: TextStyle(color: sari.mutedText),
                     filled: true,
-                    fillColor: AppColors.fieldGreen.withValues(alpha: 0.35),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: controller,
-                  obscureText: obscure,
-                  style: const TextStyle(color: AppColors.textWhite),
-                  decoration: InputDecoration(
-                    labelText: l10n.text('newPassword'),
-                    labelStyle: const TextStyle(color: AppColors.textMuted),
-                    filled: true,
-                    fillColor: AppColors.fieldGreen.withValues(alpha: 0.35),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: confirm,
-                  obscureText: obscure,
-                  style: const TextStyle(color: AppColors.textWhite),
-                  decoration: InputDecoration(
-                    labelText: l10n.text('confirmPassword'),
-                    labelStyle: const TextStyle(color: AppColors.textMuted),
-                    filled: true,
-                    fillColor: AppColors.fieldGreen.withValues(alpha: 0.35),
+                    fillColor: sari.fieldFill.withValues(alpha: 0.35),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
                     ),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        obscure ? Icons.visibility_off : Icons.visibility,
-                        color: AppColors.textFaint,
+                        obscureCurrent
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: sari.faintText,
+                        size: 20,
+                      ),
+                      onPressed: () => setDialogState(
+                        () => obscureCurrent = !obscureCurrent,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: controller,
+                  obscureText: obscureNew,
+                  style: TextStyle(color: scheme.onSurface),
+                  decoration: InputDecoration(
+                    labelText: l10n.text('newPassword'),
+                    labelStyle: TextStyle(color: sari.mutedText),
+                    filled: true,
+                    fillColor: sari.fieldFill.withValues(alpha: 0.35),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscureNew ? Icons.visibility_off : Icons.visibility,
+                        color: sari.faintText,
                         size: 20,
                       ),
                       onPressed: () =>
-                          setDialogState(() => obscure = !obscure),
+                          setDialogState(() => obscureNew = !obscureNew),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: confirm,
+                  obscureText: obscureConfirm,
+                  style: TextStyle(color: scheme.onSurface),
+                  decoration: InputDecoration(
+                    labelText: l10n.text('confirmPassword'),
+                    labelStyle: TextStyle(color: sari.mutedText),
+                    filled: true,
+                    fillColor: sari.fieldFill.withValues(alpha: 0.35),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscureConfirm
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: sari.faintText,
+                        size: 20,
+                      ),
+                      onPressed: () => setDialogState(
+                        () => obscureConfirm = !obscureConfirm,
+                      ),
                     ),
                   ),
                 ),
@@ -717,7 +689,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: saving ? null : () => Navigator.pop(ctx),
                 child: Text(
                   l10n.text('cancel'),
-                  style: const TextStyle(color: AppColors.textMuted),
+                  style: TextStyle(color: sari.mutedText),
                 ),
               ),
               ElevatedButton(
@@ -736,13 +708,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }
                         if (pass.length < 6) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l10n.text('passwordLength'))),
+                            SnackBar(
+                                content: Text(l10n.text('passwordLength'))),
                           );
                           return;
                         }
                         if (pass != confirm.text) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l10n.text('passwordMismatch'))),
+                            SnackBar(
+                                content: Text(l10n.text('passwordMismatch'))),
                           );
                           return;
                         }
@@ -751,9 +725,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         final email = user?.email;
                         if (user == null || email == null) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('No signed-in user found.'),
-                              backgroundColor: AppColors.accentRed,
+                            SnackBar(
+                              content: Text(l10n.text('noSignedInUser')),
+                              backgroundColor: sari.danger,
                             ),
                           );
                           return;
@@ -770,8 +744,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           if (ctx.mounted) Navigator.pop(ctx);
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Password updated.')),
+                              SnackBar(
+                                content: Text(l10n.text('passwordUpdated')),
+                              ),
                             );
                           }
                         } on FirebaseAuthException catch (e) {
@@ -780,16 +755,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           final msg = switch (e.code) {
                             'wrong-password' ||
                             'invalid-credential' =>
-                              'Current password is incorrect.',
-                            'requires-recent-login' =>
-                              'Please log out and log in again, then retry.',
-                            'weak-password' => 'Choose a stronger password.',
-                            _ => e.message ?? 'Failed to update password.',
+                              l10n.text('currentPasswordIncorrect'),
+                            'requires-recent-login' => l10n.text('loginAgain'),
+                            'weak-password' => l10n.text('strongerPassword'),
+                            _ => e.message ?? l10n.text('passwordUpdateFailed'),
                           };
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(msg),
-                              backgroundColor: AppColors.accentRed,
+                              backgroundColor: sari.danger,
                             ),
                           );
                         } catch (e) {
@@ -797,8 +771,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('Failed: $e'),
-                              backgroundColor: AppColors.accentRed,
+                              content: Text(l10n.text(
+                                'failed',
+                                values: {'error': '$e'},
+                              )),
+                              backgroundColor: sari.danger,
                             ),
                           );
                         }
@@ -809,7 +786,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Save'),
+                    : Text(l10n.text('save')),
               ),
             ],
           );
@@ -822,8 +799,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.only(top: 18, bottom: 8),
         child: Text(
           text,
-          style: const TextStyle(
-            color: AppColors.textFaint,
+          style: TextStyle(
+            color: sari.faintText,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.6,
@@ -834,10 +811,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _tileCard({required List<Widget> children}) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: AppColors.darkGreenMid.withValues(alpha: 0.90),
+          color: sari.cardSurfaceStrong.withValues(alpha: 0.90),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: Colors.white.withValues(alpha: 0.18),
+            color: sari.glassBorder,
             width: 1,
           ),
         ),
@@ -865,8 +842,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                        color: AppColors.textWhite,
+                      style: TextStyle(
+                        color: scheme.onSurface,
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
                       ),
@@ -874,8 +851,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 3),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
+                      style: TextStyle(
+                        color: sari.mutedText,
                         fontSize: 12,
                       ),
                     ),
@@ -885,22 +862,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               if (value != null) ...[
                 Text(
                   value,
-                  style: const TextStyle(
-                    color: AppColors.accentOrange,
+                  style: TextStyle(
+                    color: sari.warning,
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
                 ),
                 const SizedBox(width: 6),
               ],
-              const Icon(Icons.chevron_right_rounded,
-                  color: AppColors.accentOrange, size: 22),
+              Icon(Icons.chevron_right_rounded, color: sari.warning, size: 22),
             ],
           ),
         ),
       );
 
-  Widget _valueRow(String title, String subtitle, String value) => Padding(
+  Widget _valueRow(
+    String title,
+    String subtitle,
+    String value, {
+    bool showEdit = true,
+  }) =>
+      Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           children: [
@@ -910,8 +892,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      color: AppColors.textWhite,
+                    style: TextStyle(
+                      color: scheme.onSurface,
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
                     ),
@@ -919,8 +901,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: const TextStyle(
-                      color: AppColors.textMuted,
+                    style: TextStyle(
+                      color: sari.mutedText,
                       fontSize: 12,
                     ),
                   ),
@@ -929,15 +911,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             Text(
               value,
-              style: const TextStyle(
-                color: AppColors.accentOrange,
+              style: TextStyle(
+                color: sari.warning,
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
               ),
             ),
-            const SizedBox(width: 4),
-            const Icon(Icons.edit_outlined,
-                size: 16, color: AppColors.textFaint),
+            if (showEdit) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.edit_outlined, size: 16, color: sari.faintText),
+            ],
           ],
         ),
       );
@@ -958,8 +941,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      color: AppColors.textWhite,
+                    style: TextStyle(
+                      color: scheme.onSurface,
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
                     ),
@@ -967,8 +950,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: const TextStyle(
-                      color: AppColors.textMuted,
+                    style: TextStyle(
+                      color: sari.mutedText,
                       fontSize: 12,
                     ),
                   ),
@@ -978,8 +961,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Switch(
               value: value,
               onChanged: onChanged,
-              activeThumbColor: AppColors.accentOrange,
-              activeTrackColor: AppColors.accentOrange.withValues(alpha: 0.35),
+              activeThumbColor: sari.warning,
+              activeTrackColor: sari.warning.withValues(alpha: 0.35),
             ),
           ],
         ),

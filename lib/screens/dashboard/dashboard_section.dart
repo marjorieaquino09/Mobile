@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../../models/order.dart';
 import '../../services/firebase_service.dart';
 import '../../services/settings_store.dart';
@@ -11,28 +12,32 @@ import '../../theme/app_theme.dart';
 import '../../widgets/stat_card.dart';
 import 'dashboard_metrics.dart';
 
-enum _ChartPeriod { week, month, year }
+enum _ChartPeriod { day, week, month, year }
 
 extension on _ChartPeriod {
-  String get label {
+  String label(AppLocalizations l10n) {
     switch (this) {
+      case _ChartPeriod.day:
+        return l10n.text('todayPeriod');
       case _ChartPeriod.week:
-        return 'This Week';
+        return l10n.text('thisWeek');
       case _ChartPeriod.month:
-        return 'This Month';
+        return l10n.text('thisMonth');
       case _ChartPeriod.year:
-        return 'This Year';
+        return l10n.text('thisYear');
     }
   }
 
-  String get pickerLabel {
+  String pickerLabel(AppLocalizations l10n) {
     switch (this) {
+      case _ChartPeriod.day:
+        return l10n.text('periodDay');
       case _ChartPeriod.week:
-        return 'Week';
+        return l10n.text('periodWeek');
       case _ChartPeriod.month:
-        return 'Month';
+        return l10n.text('periodMonth');
       case _ChartPeriod.year:
-        return 'Year';
+        return l10n.text('periodYear');
     }
   }
 }
@@ -45,7 +50,8 @@ class DashboardSection extends StatefulWidget {
 }
 
 class _DashboardSectionState extends State<DashboardSection> {
-  static const _weekLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
 
   _ChartPeriod _period = _ChartPeriod.week;
 
@@ -54,6 +60,8 @@ class _DashboardSectionState extends State<DashboardSection> {
     final firebase = FirebaseService();
     final settings = SettingsStore.instance;
     final userId = FirebaseAuth.instance.currentUser?.uid;
+    final l10n = context.l10n;
+    final locale = Localizations.localeOf(context).languageCode;
 
     return ListenableBuilder(
       listenable: settings,
@@ -70,10 +78,10 @@ class _DashboardSectionState extends State<DashboardSection> {
               builder: (context, creditSnapshot) {
                 if (orderSnapshot.connectionState == ConnectionState.waiting &&
                     !orderSnapshot.hasData) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 28),
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 28),
                     child: Center(
-                      child: CircularProgressIndicator(color: AppColors.mintIcon),
+                      child: CircularProgressIndicator(color: sari.success),
                     ),
                   );
                 }
@@ -81,7 +89,7 @@ class _DashboardSectionState extends State<DashboardSection> {
                 if (orderSnapshot.hasError) {
                   return _messageCard(
                     'Could not load dashboard: ${orderSnapshot.error}',
-                    color: AppColors.accentRed,
+                    color: sari.danger,
                   );
                 }
 
@@ -114,18 +122,24 @@ class _DashboardSectionState extends State<DashboardSection> {
                             const <Map<String, dynamic>>[],
                       );
 
-                final chart = _chartFor(_period, orders, metrics);
+                final chart = _chartFor(
+                  _period,
+                  orders,
+                  metrics,
+                  l10n,
+                  locale,
+                );
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 22),
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 10),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 10),
                       child: Text(
-                        'Dashboard',
+                        l10n.text('dashboard'),
                         style: TextStyle(
-                          color: AppColors.textFaint,
+                          color: sari.faintText,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.8,
@@ -143,7 +157,7 @@ class _DashboardSectionState extends State<DashboardSection> {
                               width: cardWidth,
                               height: 108,
                               child: StatCard(
-                                label: 'Sales Today',
+                                label: l10n.text('salesToday'),
                                 value: settings.formatMoney(metrics.salesToday),
                                 icon: Icons.payments_outlined,
                               ),
@@ -152,9 +166,10 @@ class _DashboardSectionState extends State<DashboardSection> {
                               width: cardWidth,
                               height: 108,
                               child: StatCard(
-                                label: 'After Tax Today',
-                                value: settings.formatMoney(metrics.afterTaxToday),
-                                valueColor: AppColors.mintIcon,
+                                label: l10n.text('afterTaxToday'),
+                                value:
+                                    settings.formatMoney(metrics.afterTaxToday),
+                                valueColor: sari.success,
                                 icon: Icons.account_balance_wallet_outlined,
                               ),
                             ),
@@ -162,7 +177,7 @@ class _DashboardSectionState extends State<DashboardSection> {
                               width: cardWidth,
                               height: 108,
                               child: StatCard(
-                                label: 'Transactions',
+                                label: l10n.text('transactions'),
                                 value: '${metrics.transactionsToday}',
                                 icon: Icons.receipt_long_outlined,
                               ),
@@ -171,13 +186,12 @@ class _DashboardSectionState extends State<DashboardSection> {
                               width: cardWidth,
                               height: 108,
                               child: StatCard(
-                                label: 'Credit Balance',
+                                label: l10n.text('creditBalance'),
                                 value: creditBalance == null
-                                    ? 'Unavailable'
+                                    ? l10n.text('unavailable')
                                     : settings.formatMoney(creditBalance),
-                                valueColor: creditBalance == null
-                                    ? AppColors.accentRed
-                                    : null,
+                                valueColor:
+                                    creditBalance == null ? sari.danger : null,
                                 icon: Icons.credit_card_outlined,
                               ),
                             ),
@@ -193,9 +207,9 @@ class _DashboardSectionState extends State<DashboardSection> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            _period.label,
-                            style: const TextStyle(
-                              color: AppColors.textWhite,
+                            _period.label(l10n),
+                            style: TextStyle(
+                              color: scheme.onSurface,
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
@@ -210,29 +224,29 @@ class _DashboardSectionState extends State<DashboardSection> {
                         child: Stack(
                           children: [
                             BarChart(
-                              chart.data,
+                              chart.dataFor(sari, scheme),
                               swapAnimationDuration:
                                   const Duration(milliseconds: 250),
                             ),
                             if (!chart.hasValues)
-                              const IgnorePointer(
+                              IgnorePointer(
                                 child: Center(
                                   child: DecoratedBox(
                                     decoration: BoxDecoration(
-                                      color: AppColors.darkGreenTop,
-                                      borderRadius: BorderRadius.all(
+                                      color: sari.onAccent,
+                                      borderRadius: const BorderRadius.all(
                                         Radius.circular(16),
                                       ),
                                     ),
                                     child: Padding(
-                                      padding: EdgeInsets.symmetric(
+                                      padding: const EdgeInsets.symmetric(
                                         horizontal: 14,
                                         vertical: 8,
                                       ),
                                       child: Text(
-                                        'No sales in this period',
+                                        l10n.text('noSalesInPeriod'),
                                         style: TextStyle(
-                                          color: AppColors.textMuted,
+                                          color: sari.mutedText,
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -246,12 +260,12 @@ class _DashboardSectionState extends State<DashboardSection> {
                       ),
                     ),
                     const SizedBox(height: 22),
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 10),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 10),
                       child: Text(
-                        'Top Selling (recent)',
+                        l10n.text('topSellingRecent'),
                         style: TextStyle(
-                          color: AppColors.textWhite,
+                          color: scheme.onSurface,
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                         ),
@@ -259,10 +273,10 @@ class _DashboardSectionState extends State<DashboardSection> {
                     ),
                     if (metrics.topSellers.isEmpty)
                       _panel(
-                        child: const Text(
-                          'No sales yet — complete a checkout to see top products.',
+                        child: Text(
+                          l10n.text('noSalesYet'),
                           style: TextStyle(
-                            color: AppColors.textMuted,
+                            color: sari.mutedText,
                             fontSize: 13,
                           ),
                         ),
@@ -279,8 +293,7 @@ class _DashboardSectionState extends State<DashboardSection> {
                               if (index < metrics.topSellers.length - 1)
                                 Divider(
                                   height: 1,
-                                  color:
-                                      AppColors.mintIcon.withValues(alpha: 0.14),
+                                  color: sari.success.withValues(alpha: 0.14),
                                 ),
                             ],
                           ],
@@ -297,13 +310,14 @@ class _DashboardSectionState extends State<DashboardSection> {
   }
 
   Widget _periodPicker() {
+    final l10n = context.l10n;
     return PopupMenuButton<_ChartPeriod>(
       initialValue: _period,
       onSelected: (value) => setState(() => _period = value),
-      color: AppColors.darkGreenMid,
+      color: sari.cardSurfaceStrong,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: AppColors.mintIcon.withValues(alpha: 0.25)),
+        side: BorderSide(color: sari.success.withValues(alpha: 0.25)),
       ),
       itemBuilder: (context) => _ChartPeriod.values
           .map(
@@ -313,12 +327,11 @@ class _DashboardSectionState extends State<DashboardSection> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    period.pickerLabel,
-                    style: const TextStyle(color: AppColors.textWhite),
+                    period.pickerLabel(l10n),
+                    style: TextStyle(color: scheme.onSurface),
                   ),
                   if (period == _period)
-                    const Icon(Icons.check_rounded,
-                        color: AppColors.accentOrange, size: 18),
+                    Icon(Icons.check_rounded, color: sari.warning, size: 18),
                 ],
               ),
             ),
@@ -328,7 +341,7 @@ class _DashboardSectionState extends State<DashboardSection> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           border: Border.all(
-            color: AppColors.mintIcon.withValues(alpha: 0.35),
+            color: sari.success.withValues(alpha: 0.35),
           ),
           borderRadius: BorderRadius.circular(14),
         ),
@@ -336,16 +349,15 @@ class _DashboardSectionState extends State<DashboardSection> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              _period.pickerLabel,
-              style: const TextStyle(
-                color: AppColors.textFaint,
+              _period.pickerLabel(l10n),
+              style: TextStyle(
+                color: sari.faintText,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.expand_more_rounded,
-                color: AppColors.textFaint, size: 18),
+            Icon(Icons.expand_more_rounded, color: sari.faintText, size: 18),
           ],
         ),
       ),
@@ -356,22 +368,78 @@ class _DashboardSectionState extends State<DashboardSection> {
     _ChartPeriod period,
     List<StoreOrder> orders,
     DashboardMetrics metrics,
+    AppLocalizations l10n,
+    String locale,
   ) {
     switch (period) {
+      case _ChartPeriod.day:
+        return _buildDayChart(orders, locale);
       case _ChartPeriod.week:
-        return _ChartResult(
-          values: metrics.weeklySales,
-          labels: _weekLabels,
-          hasValues: metrics.hasWeeklySales,
-        );
+        return _buildWeekChart(orders, locale);
       case _ChartPeriod.month:
-        return _buildMonthChart(orders);
+        return _buildMonthChart(orders, locale, l10n);
       case _ChartPeriod.year:
-        return _buildYearChart(orders);
+        return _buildYearChart(orders, locale);
     }
   }
 
-  static _ChartResult _buildMonthChart(List<StoreOrder> orders) {
+  static _ChartResult _buildDayChart(
+    List<StoreOrder> orders,
+    String locale,
+  ) {
+    final now = DateTime.now();
+    final values = List<double>.filled(8, 0);
+    for (final order in orders) {
+      final createdAt = order.createdAt;
+      if (createdAt == null ||
+          createdAt.year != now.year ||
+          createdAt.month != now.month ||
+          createdAt.day != now.day) {
+        continue;
+      }
+      values[createdAt.hour ~/ 3] += order.total;
+    }
+    final labels = List<String>.generate(
+      8,
+      (index) => DateFormat('ha', locale).format(
+        DateTime(now.year, now.month, now.day, index * 3),
+      ),
+    );
+    return _ChartResult(
+      values: values,
+      labels: labels,
+      hasValues: values.any((value) => value > 0),
+    );
+  }
+
+  static _ChartResult _buildWeekChart(List<StoreOrder> orders, String locale) {
+    final now = DateTime.now();
+    final monday = DateTime(now.year, now.month, now.day)
+        .subtract(Duration(days: now.weekday - 1));
+    final values = List<double>.filled(7, 0);
+    for (final order in orders) {
+      final createdAt = order.createdAt;
+      if (createdAt == null) continue;
+      final day = DateTime(createdAt.year, createdAt.month, createdAt.day);
+      final index = day.difference(monday).inDays;
+      if (index >= 0 && index < values.length) values[index] += order.total;
+    }
+    return _ChartResult(
+      values: values,
+      labels: List<String>.generate(
+        7,
+        (index) =>
+            DateFormat('E', locale).format(monday.add(Duration(days: index))),
+      ),
+      hasValues: values.any((value) => value > 0),
+    );
+  }
+
+  static _ChartResult _buildMonthChart(
+    List<StoreOrder> orders,
+    String locale,
+    AppLocalizations l10n,
+  ) {
     final now = DateTime.now();
     final values = List<double>.filled(5, 0);
     for (final order in orders) {
@@ -381,7 +449,10 @@ class _DashboardSectionState extends State<DashboardSection> {
       final weekIndex = ((createdAt.day - 1) ~/ 7).clamp(0, 4);
       values[weekIndex] += order.total;
     }
-    final labels = List<String>.generate(5, (i) => 'W${i + 1}');
+    final labels = List<String>.generate(
+      5,
+      (i) => l10n.text('chartWeekAbbr', values: {'week': '${i + 1}'}),
+    );
     return _ChartResult(
       values: values,
       labels: labels,
@@ -389,7 +460,7 @@ class _DashboardSectionState extends State<DashboardSection> {
     );
   }
 
-  static _ChartResult _buildYearChart(List<StoreOrder> orders) {
+  static _ChartResult _buildYearChart(List<StoreOrder> orders, String locale) {
     final now = DateTime.now();
     final values = List<double>.filled(12, 0);
     for (final order in orders) {
@@ -400,7 +471,7 @@ class _DashboardSectionState extends State<DashboardSection> {
     }
     final labels = List<String>.generate(
       12,
-      (i) => DateFormat('MMM').format(DateTime(now.year, i + 1)),
+      (i) => DateFormat('MMM', locale).format(DateTime(now.year, i + 1)),
     );
     return _ChartResult(
       values: values,
@@ -409,7 +480,7 @@ class _DashboardSectionState extends State<DashboardSection> {
     );
   }
 
-  static Widget _messageCard(String message, {required Color color}) {
+  Widget _messageCard(String message, {required Color color}) {
     return Padding(
       padding: const EdgeInsets.only(top: 22),
       child: _panel(
@@ -422,7 +493,7 @@ class _DashboardSectionState extends State<DashboardSection> {
     );
   }
 
-  static Widget _panel({
+  Widget _panel({
     required Widget child,
     EdgeInsetsGeometry padding = const EdgeInsets.all(16),
   }) {
@@ -430,15 +501,15 @@ class _DashboardSectionState extends State<DashboardSection> {
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
-        color: AppColors.darkGreenMid.withValues(alpha: 0.9),
+        color: sari.cardSurface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        border: Border.all(color: sari.cardBorder),
       ),
       child: child,
     );
   }
 
-  static Widget _sellerRow(DashboardSeller seller, int rank) {
+  Widget _sellerRow(DashboardSeller seller, int rank) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       child: Row(
@@ -448,13 +519,13 @@ class _DashboardSectionState extends State<DashboardSection> {
             height: 30,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: AppColors.mintIcon.withValues(alpha: 0.16),
+              color: sari.success.withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
               '$rank',
-              style: const TextStyle(
-                color: AppColors.mintIcon,
+              style: TextStyle(
+                color: sari.success,
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
               ),
@@ -464,12 +535,12 @@ class _DashboardSectionState extends State<DashboardSection> {
           Container(
             padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
-              color: AppColors.accentOrange.withValues(alpha: 0.14),
+              color: sari.warning.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(9),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.shopping_bag_outlined,
-              color: AppColors.accentOrange,
+              color: sari.warning,
               size: 17,
             ),
           ),
@@ -479,8 +550,8 @@ class _DashboardSectionState extends State<DashboardSection> {
               seller.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textWhite,
+              style: TextStyle(
+                color: scheme.onSurface,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -488,9 +559,12 @@ class _DashboardSectionState extends State<DashboardSection> {
           ),
           const SizedBox(width: 12),
           Text(
-            '${seller.quantity} pcs',
-            style: const TextStyle(
-              color: AppColors.accentOrange,
+            context.l10n.text(
+              'bestSellingPcs',
+              values: {'count': '${seller.quantity}'},
+            ),
+            style: TextStyle(
+              color: sari.warning,
               fontSize: 14,
               fontWeight: FontWeight.bold,
             ),
@@ -512,7 +586,7 @@ class _ChartResult {
   final List<String> labels;
   final bool hasValues;
 
-  BarChartData get data {
+  BarChartData dataFor(SariColors sari, ColorScheme scheme) {
     final highestValue = values.fold<double>(
       0,
       (current, value) => value > current ? value : current,
@@ -531,15 +605,15 @@ class _ChartResult {
             if (index < 0 || index >= labels.length) return null;
             return BarTooltipItem(
               '${labels[index]}\n',
-              const TextStyle(
-                color: AppColors.textWhite,
+              TextStyle(
+                color: scheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
               children: [
                 TextSpan(
                   text: SettingsStore.instance.formatMoney(values[index]),
-                  style: const TextStyle(
-                    color: AppColors.mintIcon,
+                  style: TextStyle(
+                    color: sari.success,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -573,8 +647,8 @@ class _ChartResult {
                 space: 8,
                 child: Text(
                   labels[index],
-                  style: const TextStyle(
-                    color: AppColors.textFaint,
+                  style: TextStyle(
+                    color: sari.chartLabel,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                   ),
@@ -592,18 +666,11 @@ class _ChartResult {
               toY: values[index],
               width: values.length > 7 ? 10 : 16,
               borderRadius: const BorderRadius.all(Radius.circular(8)),
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [
-                  AppColors.mintIcon.withValues(alpha: 0.55),
-                  AppColors.mintIcon,
-                ],
-              ),
+              color: sari.chartBar,
               backDrawRodData: BackgroundBarChartRodData(
                 show: true,
                 toY: chartMax,
-                color: AppColors.fieldGreen.withValues(alpha: 0.45),
+                color: sari.cardSurface,
               ),
             ),
           ],

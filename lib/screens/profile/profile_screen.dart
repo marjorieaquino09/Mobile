@@ -28,6 +28,9 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
   String _name = '';
   String _username = '';
   String _storeName = '';
@@ -136,13 +139,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (_imageBytes != null) {
       avatar = CircleAvatar(
         radius: radius,
-        backgroundColor: AppColors.mintIcon,
+        backgroundColor: sari.success,
         backgroundImage: MemoryImage(_imageBytes!),
       );
     } else if (_photoUrl.isNotEmpty && !_photoUrl.startsWith('data:image')) {
       avatar = CircleAvatar(
         radius: radius,
-        backgroundColor: AppColors.mintIcon,
+        backgroundColor: sari.success,
         child: ClipOval(
           child: ProductImage(
             imageUrl: _photoUrl,
@@ -155,11 +158,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } else {
       avatar = CircleAvatar(
         radius: radius,
-        backgroundColor: AppColors.mintIcon,
+        backgroundColor: sari.success,
         child: Text(
           _name.isNotEmpty ? _name[0].toUpperCase() : 'U',
           style: TextStyle(
-            color: AppColors.darkGreenTop,
+            color: sari.onAccent,
             fontWeight: FontWeight.bold,
             fontSize: radius * 0.7,
           ),
@@ -179,7 +182,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: AppColors.mintIcon.withValues(alpha: 0.45),
+                  color: sari.success.withValues(alpha: 0.45),
                   width: 2.5,
                 ),
               ),
@@ -191,17 +194,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: AppColors.accentOrange,
+                  color: sari.warning,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: AppColors.darkGreenMid,
+                    color: sari.cardSurfaceStrong,
                     width: 2,
                   ),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.camera_alt_rounded,
                   size: 12,
-                  color: AppColors.darkGreenTop,
+                  color: sari.onAccentAmber,
                 ),
               ),
             ),
@@ -218,15 +221,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final l10n = context.l10n;
 
     return Scaffold(
-      backgroundColor: AppColors.darkGreenTop,
       resizeToAvoidBottomInset: false,
       body: Container(
-        decoration:
-            const BoxDecoration(gradient: AppColors.darkBackgroundGradient),
+        decoration: BoxDecoration(gradient: sari.screenGradient),
         child: SafeArea(
           child: RefreshIndicator(
-            color: AppColors.accentOrange,
-            backgroundColor: AppColors.darkGreenMid,
+            color: sari.warning,
+            backgroundColor: sari.cardSurfaceStrong,
             onRefresh: _fetchUserData,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(
@@ -240,8 +241,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
                     child: Text(
                       l10n.text('profileTitle'),
-                      style: const TextStyle(
-                        color: AppColors.textWhite,
+                      style: TextStyle(
+                        color: scheme.onSurface,
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.2,
@@ -254,16 +255,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       padding: const EdgeInsets.all(12),
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                        color: AppColors.accentOrange.withValues(alpha: 0.15),
+                        color: sari.warning.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: AppColors.accentOrange.withValues(alpha: 0.35),
+                          color: sari.warning.withValues(alpha: 0.35),
                         ),
                       ),
                       child: Text(
                         _loadError!,
-                        style: const TextStyle(
-                          color: AppColors.accentOrange,
+                        style: TextStyle(
+                          color: sari.warning,
                           fontSize: 12,
                         ),
                       ),
@@ -274,11 +275,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   // together at the top) ──────────────────────────────────
                   _glassCard(
                     child: _loading
-                        ? const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 36),
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 36),
                             child: Center(
                               child: CircularProgressIndicator(
-                                color: AppColors.mintIcon,
+                                color: sari.success,
                               ),
                             ),
                           )
@@ -297,8 +298,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       children: [
                                         Text(
                                           _name,
-                                          style: const TextStyle(
-                                            color: AppColors.textWhite,
+                                          style: TextStyle(
+                                            color: scheme.onSurface,
                                             fontSize: 20,
                                             fontWeight: FontWeight.bold,
                                             height: 1.2,
@@ -308,8 +309,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                           const SizedBox(height: 4),
                                           Text(
                                             '@$_username',
-                                            style: const TextStyle(
-                                              color: AppColors.accentOrange,
+                                            style: TextStyle(
+                                              color: sari.warning,
                                               fontSize: 13,
                                               fontWeight: FontWeight.w600,
                                             ),
@@ -353,23 +354,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                           borderRadius:
                                               BorderRadius.circular(20),
                                           border: Border.all(
-                                            color: AppColors.accentOrange,
+                                            color: sari.warning,
                                             width: 1.3,
                                           ),
                                         ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(
+                                            Icon(
                                               Icons.edit_outlined,
                                               size: 15,
-                                              color: AppColors.accentOrange,
+                                              color: sari.warning,
                                             ),
                                             const SizedBox(width: 6),
                                             Text(
                                               l10n.text('edit'),
-                                              style: const TextStyle(
-                                                color: AppColors.accentOrange,
+                                              style: TextStyle(
+                                                color: sari.warning,
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.bold,
                                               ),
@@ -401,8 +402,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     padding: const EdgeInsets.only(left: 4, bottom: 10),
                     child: Text(
                       l10n.text('manage'),
-                      style: const TextStyle(
-                        color: AppColors.textFaint,
+                      style: TextStyle(
+                        color: sari.faintText,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.8,
@@ -449,10 +450,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           width: double.infinity,
           padding: padding,
           decoration: BoxDecoration(
-            color: AppColors.darkGreenMid.withValues(alpha: 0.92),
+            color: sari.cardSurfaceStrong.withValues(alpha: 0.92),
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: sari.glassBorder,
               width: 1.2,
             ),
           ),
@@ -466,13 +467,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 13, color: AppColors.textFaint),
+        Icon(icon, size: 13, color: sari.faintText),
         const SizedBox(width: 6),
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(
-              color: AppColors.textFaint,
+            style: TextStyle(
+              color: sari.faintText,
               fontSize: 12,
               height: 1.3,
             ),
@@ -505,25 +506,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
           },
           child: Ink(
             decoration: BoxDecoration(
-              color: AppColors.darkGreenMid.withValues(alpha: 0.90),
+              color: sari.cardSurfaceStrong.withValues(alpha: 0.90),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.16),
+                color: sari.glassBorder,
                 width: 1,
               ),
             ),
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(
-                      color: AppColors.mintIcon.withValues(alpha: 0.22),
+                      color: sari.success.withValues(alpha: 0.22),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(icon, color: AppColors.mintIcon, size: 20),
+                    child: Icon(icon, color: sari.success, size: 20),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -532,8 +532,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Text(
                           title,
-                          style: const TextStyle(
-                            color: AppColors.textWhite,
+                          style: TextStyle(
+                            color: scheme.onSurface,
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
                           ),
@@ -541,17 +541,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 3),
                         Text(
                           subtitle,
-                          style: const TextStyle(
-                            color: AppColors.textMuted,
+                          style: TextStyle(
+                            color: sari.mutedText,
                             fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
-                    color: AppColors.accentOrange,
+                    color: sari.warning,
                     size: 22,
                   ),
                 ],

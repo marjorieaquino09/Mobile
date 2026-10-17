@@ -1,8 +1,14 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_snackbar.dart';
+import '../../core/widgets/app_text_field.dart';
+import '../../core/widgets/primary_button.dart';
+import '../../l10n/app_localizations.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -22,7 +28,6 @@ class _SignupScreenState extends State<SignupScreen> {
   DateTime? _birthDate;
   bool _isLoading = false;
 
-  static final DateFormat _displayFormat = DateFormat('MMM d, yyyy');
   static final DateFormat _storageFormat = DateFormat('yyyy-MM-dd');
 
   @override
@@ -38,7 +43,6 @@ class _SignupScreenState extends State<SignupScreen> {
 
   Future<void> _pickBirthDate() async {
     final now = DateTime.now();
-    // Require at least 13 years old; allow up to 100 years old.
     final latest = DateTime(now.year - 13, now.month, now.day);
     final earliest = DateTime(now.year - 100, now.month, now.day);
     final initial = _birthDate ?? DateTime(now.year - 18, now.month, now.day);
@@ -50,25 +54,9 @@ class _SignupScreenState extends State<SignupScreen> {
           : (initial.isAfter(latest) ? latest : initial),
       firstDate: earliest,
       lastDate: latest,
-      helpText: 'Select your birthday',
-      cancelText: 'Cancel',
-      confirmText: 'Done',
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: Color(0xFFF2AD43),
-              onPrimary: Color(0xFF1D2E24),
-              surface: Color(0xFF1E4433),
-              onSurface: Colors.white,
-            ),
-            dialogTheme: const DialogThemeData(
-              backgroundColor: Color(0xFF1E4433),
-            ),
-          ),
-          child: child!,
-        );
-      },
+      helpText: context.l10n.text('selectBirthday'),
+      cancelText: context.l10n.text('cancel'),
+      confirmText: context.l10n.text('save'),
     );
 
     if (picked != null) {
@@ -80,10 +68,12 @@ class _SignupScreenState extends State<SignupScreen> {
     final now = DateTime.now();
     final thirteenYearsAgo = DateTime(now.year - 13, now.month, now.day);
     final hundredYearsAgo = DateTime(now.year - 100, now.month, now.day);
+
     return !date.isAfter(thirteenYearsAgo) && !date.isBefore(hundredYearsAgo);
   }
 
   Future<void> _signUp() async {
+    final l10n = context.l10n;
     final firstName = _firstNameController.text.trim();
     final lastName = _lastNameController.text.trim();
     final storeName = _storeNameController.text.trim();
@@ -91,32 +81,28 @@ class _SignupScreenState extends State<SignupScreen> {
     final password = _passwordController.text.trim();
     final confirmPassword = _confirmPasswordController.text.trim();
 
-    // Basic Validations
     if (firstName.isEmpty ||
         lastName.isEmpty ||
         storeName.isEmpty ||
         email.isEmpty ||
         password.isEmpty ||
         _birthDate == null) {
-      _showSnackBar('Please fill in all fields.', isError: true);
+      AppSnackbar.showError(context, l10n.text('signupAllFields'));
       return;
     }
 
     if (!_isValidBirthDate(_birthDate!)) {
-      _showSnackBar(
-        'Please select a valid birthday (you must be at least 13 years old).',
-        isError: true,
-      );
+      AppSnackbar.showError(context, l10n.text('signupValidBirthday'));
       return;
     }
 
     if (password != confirmPassword) {
-      _showSnackBar('Passwords do not match.', isError: true);
+      AppSnackbar.showError(context, l10n.text('passwordMismatch'));
       return;
     }
 
     if (password.length < 6) {
-      _showSnackBar('Password must be at least 6 characters.', isError: true);
+      AppSnackbar.showError(context, l10n.text('passwordLength'));
       return;
     }
 
@@ -146,15 +132,15 @@ class _SignupScreenState extends State<SignupScreen> {
 
       if (!mounted) return;
 
-      _showSnackBar('Account created successfully! Please log in.',
-          isError: false);
-
+      AppSnackbar.showSuccess(context, l10n.text('signupSuccess'));
       Navigator.of(context).pop();
     } on FirebaseAuthException catch (e) {
-      _showSnackBar(e.message ?? 'An error occurred during registration.',
-          isError: true);
+      AppSnackbar.showError(context, e.message ?? l10n.text('signupError'));
     } catch (e) {
-      _showSnackBar('Failed to sign up: $e', isError: true);
+      AppSnackbar.showError(
+        context,
+        l10n.text('signupFailed', values: {'error': '$e'}),
+      );
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -162,288 +148,320 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  void _showSnackBar(String message, {bool isError = true}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.redAccent : Colors.green,
-      ),
-    );
-  }
-
-  Widget _balancedTextField({
-    required String label,
-    required String hint,
-    required TextEditingController controller,
-    bool obscureText = false,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        SizedBox(
-          height: 46,
-          child: TextField(
-            controller: controller,
-            obscureText: obscureText,
-            keyboardType: keyboardType,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle:
-                  const TextStyle(color: Color(0xFF80A391), fontSize: 13),
-              filled: true,
-              fillColor: const Color(0xFF0F2B20).withValues(alpha: 0.8),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(26),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _birthdayPickerField() {
-    final hasDate = _birthDate != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Date of Birth',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _isLoading ? null : _pickBirthDate,
-            borderRadius: BorderRadius.circular(26),
-            child: Ink(
-              height: 46,
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F2B20).withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(26),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        hasDate
-                            ? _displayFormat.format(_birthDate!)
-                            : 'Select your birthday',
-                        style: TextStyle(
-                          color: hasDate
-                              ? Colors.white
-                              : const Color(0xFF80A391),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                    const Icon(
-                      Icons.calendar_month_rounded,
-                      color: Color(0xFFF2AD43),
-                      size: 20,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final sari = context.sari;
+    final l10n = context.l10n;
+    final hasDate = _birthDate != null;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0C241B),
-      resizeToAvoidBottomInset: false,
-      body: Stack(
-        children: [
-          Container(color: const Color(0xFF0C241B)),
-          Positioned.fill(
-            child: Image.asset(
-              'assets/background.png',
-              fit: BoxFit.cover,
-              alignment: Alignment.center,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(color: const Color(0xFF0C241B));
-              },
-            ),
-          ),
-          SafeArea(
-            bottom: false,
-            child: SingleChildScrollView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back,
-                            color: Colors.white, size: 22),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                      const Spacer(),
-                      const Text(
-                        'Sign up',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      resizeToAvoidBottomInset: true,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final minContentHeight =
+                constraints.maxHeight > 32 ? constraints.maxHeight - 32 : 0.0;
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 16,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: minContentHeight),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _SariLogo(
+                              size: 48,
+                              fallbackColor: scheme.primary,
+                            ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Sari',
+                                  style: GoogleFonts.outfit(
+                                    color: scheme.onSurface,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  'STORE MANAGEMENT',
+                                  style: GoogleFonts.outfit(
+                                    color: sari.mutedText,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                      ),
-                      const Spacer(flex: 2),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-                        decoration: BoxDecoration(
-                          color:
-                              const Color(0xFF264C39).withValues(alpha: 0.82),
-                          borderRadius: BorderRadius.circular(28),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.15),
-                            width: 1,
+                        const SizedBox(height: 22),
+                        Text(
+                          'Create your account',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.outfit(
+                            color: scheme.onSurface,
+                            fontSize: 29,
+                            fontWeight: FontWeight.w700,
+                            height: 1.12,
+                            letterSpacing: -0.5,
                           ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _balancedTextField(
-                              label: 'First Name',
-                              hint: 'Enter your first name',
-                              controller: _firstNameController,
-                            ),
-                            const SizedBox(height: 10),
-                            _balancedTextField(
-                              label: 'Last Name',
-                              hint: 'Enter your last name',
-                              controller: _lastNameController,
-                            ),
-                            const SizedBox(height: 10),
-                            _balancedTextField(
-                              label: 'Name of the Store',
-                              hint: 'Enter store name',
-                              controller: _storeNameController,
-                            ),
-                            const SizedBox(height: 10),
-                            _balancedTextField(
-                              label: 'Email',
-                              hint: 'Enter your email',
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                            ),
-                            const SizedBox(height: 10),
-                            _balancedTextField(
-                              label: 'Password',
-                              hint: 'Enter your password',
-                              controller: _passwordController,
-                              obscureText: true,
-                            ),
-                            const SizedBox(height: 10),
-                            _balancedTextField(
-                              label: 'Confirm Password',
-                              hint: 'Re-enter your password',
-                              controller: _confirmPasswordController,
-                              obscureText: true,
-                            ),
-                            const SizedBox(height: 10),
-                            _birthdayPickerField(),
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 48,
-                              child: ElevatedButton(
-                                onPressed: _isLoading ? null : _signUp,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFF2AD43),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(28),
-                                  ),
-                                  elevation: 0,
-                                ),
-                                child: _isLoading
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Color(0xFF1D2E24),
-                                        ),
-                                      )
-                                    : const Text(
-                                        'Sign Up',
-                                        style: TextStyle(
-                                          color: Color(0xFF1D2E24),
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Register your store to get started',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.outfit(
+                            color: sari.mutedText,
+                            fontSize: 15,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        Container(
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            color: sari.authCardSurface,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: sari.authBorder),
+                            boxShadow: [
+                              BoxShadow(
+                                color: sari.shadow,
+                                blurRadius: 24,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _SignupFieldLabel(
+                                label: 'PERSONAL DETAILS',
+                                color: sari.mutedText,
+                              ),
+                              const SizedBox(height: 10),
+                              AppTextField(
+                                controller: _firstNameController,
+                                hintText: l10n.text('firstName'),
+                                prefixIcon: Icons.badge_outlined,
+                              ),
+                              const SizedBox(height: 12),
+                              AppTextField(
+                                controller: _lastNameController,
+                                hintText: l10n.text('lastName'),
+                                prefixIcon: Icons.badge_outlined,
+                              ),
+                              const SizedBox(height: 16),
+                              _SignupFieldLabel(
+                                label: 'STORE DETAILS',
+                                color: sari.mutedText,
+                              ),
+                              const SizedBox(height: 10),
+                              AppTextField(
+                                controller: _storeNameController,
+                                hintText: 'Store name',
+                                prefixIcon: Icons.storefront_outlined,
+                              ),
+                              const SizedBox(height: 12),
+                              AppTextField(
+                                controller: _emailController,
+                                hintText: 'Email address',
+                                prefixIcon: Icons.mail_outline_rounded,
+                                keyboardType: TextInputType.emailAddress,
+                              ),
+                              const SizedBox(height: 12),
+                              AppTextField(
+                                controller: _passwordController,
+                                hintText: 'Password',
+                                prefixIcon: Icons.lock_outline_rounded,
+                                obscureText: true,
+                              ),
+                              const SizedBox(height: 12),
+                              AppTextField(
+                                controller: _confirmPasswordController,
+                                hintText: 'Confirm password',
+                                prefixIcon: Icons.lock_outline_rounded,
+                                obscureText: true,
+                              ),
+                              const SizedBox(height: 12),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: _isLoading ? null : _pickBirthDate,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Ink(
+                                    height: 54,
+                                    decoration: BoxDecoration(
+                                      color: sari.fieldFill,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: sari.authBorder,
                                       ),
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.calendar_month_rounded,
+                                            color: scheme.primary,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              hasDate
+                                                  ? DateFormat(
+                                                      'MMM d, yyyy',
+                                                      Localizations.localeOf(
+                                                        context,
+                                                      ).languageCode,
+                                                    ).format(_birthDate!)
+                                                  : l10n.text('selectBirthday'),
+                                              style: GoogleFonts.outfit(
+                                                color: hasDate
+                                                    ? scheme.onSurface
+                                                    : sari.faintText,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.keyboard_arrow_down_rounded,
+                                            color: sari.mutedText,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              PrimaryButton(
+                                label: 'Create Account',
+                                isLoading: _isLoading,
+                                onPressed: _signUp,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '${l10n.text('signupAlreadyHaveAccount')} ',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.outfit(
+                                  color: sari.mutedText,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                minimumSize: const Size(0, 48),
+                              ),
+                              child: Text(
+                                'Log In',
+                                style: GoogleFonts.outfit(
+                                  color: scheme.primary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ],
                         ),
-                      ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        'Already have an account? ',
-                        style: TextStyle(
-                          color: Color(0xFFD0E0D5),
-                          fontSize: 13,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: const Text(
-                          'Log In',
-                          style: TextStyle(
-                            color: Color(0xFFF2AD43),
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 30),
-                ],
+                ),
               ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _SariLogo extends StatelessWidget {
+  const _SariLogo({required this.size, required this.fallbackColor});
+
+  final double size;
+  final Color fallbackColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Image.asset(
+        'assets/logo.jpg',
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: fallbackColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(16),
             ),
-          ),
-        ],
+            child: Icon(
+              Icons.storefront_rounded,
+              color: fallbackColor,
+              size: size * 0.54,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SignupFieldLabel extends StatelessWidget {
+  const _SignupFieldLabel({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: GoogleFonts.outfit(
+        color: color,
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.8,
       ),
     );
   }

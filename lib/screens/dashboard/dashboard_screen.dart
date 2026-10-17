@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/order.dart';
 import '../../services/firebase_service.dart';
 import '../../services/settings_store.dart';
@@ -23,14 +25,18 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sari = context.sari;
+    final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
+    final locale = Localizations.localeOf(context).languageCode;
+
     final firebase = FirebaseService();
     final settings = SettingsStore.instance;
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
       body: Container(
-        decoration:
-            const BoxDecoration(gradient: AppColors.darkBackgroundGradient),
+        decoration: BoxDecoration(gradient: sari.screenGradient),
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -43,16 +49,15 @@ class DashboardScreen extends StatelessWidget {
                   children: [
                     if (Navigator.of(context).canPop())
                       IconButton(
-                        icon: const Icon(Icons.arrow_back,
-                            color: AppColors.textWhite),
+                        icon: Icon(Icons.arrow_back, color: scheme.onSurface),
                         onPressed: () => Navigator.of(context).pop(),
                       )
                     else
                       const SizedBox(width: 48),
-                    const Text(
-                      'Reports & Analytics',
+                    Text(
+                      l10n.text('reportsAnalytics'),
                       style: TextStyle(
-                        color: AppColors.textWhite,
+                        color: scheme.onSurface,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
@@ -68,8 +73,7 @@ class DashboardScreen extends StatelessWidget {
                       return StreamBuilder<QuerySnapshot>(
                         stream: uid == null
                             ? const Stream.empty()
-                            : firebase.getOrdersStream(
-                                userId: uid, limit: 200),
+                            : firebase.getOrdersStream(userId: uid, limit: 200),
                         builder: (context, orderSnap) {
                           return StreamBuilder<
                               QuerySnapshot<Map<String, dynamic>>>(
@@ -112,9 +116,9 @@ class DashboardScreen extends StatelessWidget {
                                   !orderSnap.hasData;
 
                               if (waiting) {
-                                return const Center(
+                                return Center(
                                   child: CircularProgressIndicator(
-                                    color: AppColors.mintIcon,
+                                    color: sari.success,
                                   ),
                                 );
                               }
@@ -122,9 +126,11 @@ class DashboardScreen extends StatelessWidget {
                               if (orderSnap.hasError) {
                                 return Center(
                                   child: Text(
-                                    'Could not load dashboard: ${orderSnap.error}',
-                                    style: const TextStyle(
-                                        color: AppColors.textMuted),
+                                    l10n.text(
+                                      'couldNotLoadDashboard',
+                                      values: {'error': '${orderSnap.error}'},
+                                    ),
+                                    style: TextStyle(color: sari.mutedText),
                                     textAlign: TextAlign.center,
                                   ),
                                 );
@@ -144,8 +150,8 @@ class DashboardScreen extends StatelessWidget {
                               for (final o in orders) {
                                 final when = o.createdAt;
                                 if (when == null) continue;
-                                final day = DateTime(
-                                    when.year, when.month, when.day);
+                                final day =
+                                    DateTime(when.year, when.month, when.day);
                                 final diff = day.difference(weekStart).inDays;
                                 if (diff >= 0 && diff < 7) {
                                   values[diff] += o.total;
@@ -158,7 +164,8 @@ class DashboardScreen extends StatelessWidget {
                               for (final o in orders) {
                                 for (final item in o.items) {
                                   final name =
-                                      (item['name'] ?? 'Item').toString();
+                                      (item['name'] ?? l10n.text('itemName'))
+                                          .toString();
                                   final qty =
                                       (item['quantity'] as num?)?.toInt() ?? 0;
                                   soldByName[name] =
@@ -169,7 +176,12 @@ class DashboardScreen extends StatelessWidget {
                                 ..sort((a, b) => b.value.compareTo(a.value));
                               final top3 = topSelling.take(3).toList();
 
-                              const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+                              final labels = List<String>.generate(
+                                7,
+                                (index) => DateFormat('E', locale).format(
+                                  weekStart.add(Duration(days: index)),
+                                ),
+                              );
 
                               return SingleChildScrollView(
                                 physics: const BouncingScrollPhysics(),
@@ -180,7 +192,7 @@ class DashboardScreen extends StatelessWidget {
                                       children: [
                                         Expanded(
                                           child: StatCard(
-                                            label: 'Sales Today',
+                                            label: l10n.text('salesToday'),
                                             value: settings
                                                 .formatMoney(salesToday),
                                           ),
@@ -188,10 +200,10 @@ class DashboardScreen extends StatelessWidget {
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: StatCard(
-                                            label: 'After Tax Today',
+                                            label: l10n.text('afterTaxToday'),
                                             value: settings
                                                 .formatMoney(afterTaxToday),
-                                            valueColor: AppColors.mintIcon,
+                                            valueColor: sari.success,
                                           ),
                                         ),
                                       ],
@@ -201,14 +213,14 @@ class DashboardScreen extends StatelessWidget {
                                       children: [
                                         Expanded(
                                           child: StatCard(
-                                            label: 'Transactions',
+                                            label: l10n.text('transactions'),
                                             value: '$txToday',
                                           ),
                                         ),
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: StatCard(
-                                            label: 'Credit Balance',
+                                            label: l10n.text('creditBalance'),
                                             value: settings
                                                 .formatMoney(creditBalance),
                                           ),
@@ -216,10 +228,10 @@ class DashboardScreen extends StatelessWidget {
                                       ],
                                     ),
                                     const SizedBox(height: 24),
-                                    const Text(
-                                      'This Week',
+                                    Text(
+                                      l10n.text('thisWeek'),
                                       style: TextStyle(
-                                        color: AppColors.textWhite,
+                                        color: scheme.onSurface,
                                         fontSize: 15,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -230,11 +242,11 @@ class DashboardScreen extends StatelessWidget {
                                       padding: const EdgeInsets.fromLTRB(
                                           16, 20, 16, 10),
                                       decoration: BoxDecoration(
-                                        color: AppColors.fieldGreen
+                                        color: sari.fieldFill
                                             .withValues(alpha: 0.3),
                                         borderRadius: BorderRadius.circular(20),
                                         border: Border.all(
-                                          color: AppColors.mintIcon
+                                          color: sari.success
                                               .withValues(alpha: 0.3),
                                         ),
                                       ),
@@ -243,20 +255,19 @@ class DashboardScreen extends StatelessWidget {
                                           maxY: maxY <= 0 ? 10 : maxY * 1.2,
                                           gridData:
                                               const FlGridData(show: false),
-                                          borderData:
-                                              FlBorderData(show: false),
+                                          borderData: FlBorderData(show: false),
                                           titlesData: FlTitlesData(
                                             leftTitles: const AxisTitles(
-                                              sideTitles: SideTitles(
-                                                  showTitles: false),
+                                              sideTitles:
+                                                  SideTitles(showTitles: false),
                                             ),
                                             rightTitles: const AxisTitles(
-                                              sideTitles: SideTitles(
-                                                  showTitles: false),
+                                              sideTitles:
+                                                  SideTitles(showTitles: false),
                                             ),
                                             topTitles: const AxisTitles(
-                                              sideTitles: SideTitles(
-                                                  showTitles: false),
+                                              sideTitles:
+                                                  SideTitles(showTitles: false),
                                             ),
                                             bottomTitles: AxisTitles(
                                               sideTitles: SideTitles(
@@ -274,9 +285,9 @@ class DashboardScreen extends StatelessWidget {
                                                             top: 8),
                                                     child: Text(
                                                       labels[i],
-                                                      style: const TextStyle(
-                                                        color: AppColors
-                                                            .textFaint,
+                                                      // FIX: AppColors.textFaint -> sari.faintText
+                                                      style: TextStyle(
+                                                        color: sari.faintText,
                                                         fontSize: 11,
                                                       ),
                                                     ),
@@ -295,7 +306,7 @@ class DashboardScreen extends StatelessWidget {
                                                   width: 16,
                                                   borderRadius:
                                                       BorderRadius.circular(6),
-                                                  color: AppColors.mintIcon
+                                                  color: sari.success
                                                       .withValues(alpha: 0.6),
                                                 ),
                                               ],
@@ -305,10 +316,10 @@ class DashboardScreen extends StatelessWidget {
                                       ),
                                     ),
                                     const SizedBox(height: 24),
-                                    const Text(
-                                      'Top Selling (recent)',
+                                    Text(
+                                      l10n.text('topSellingRecent'),
                                       style: TextStyle(
-                                        color: AppColors.textWhite,
+                                        color: scheme.onSurface,
                                         fontSize: 15,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -319,15 +330,15 @@ class DashboardScreen extends StatelessWidget {
                                         width: double.infinity,
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: AppColors.fieldGreen
+                                          color: sari.fieldFill
                                               .withValues(alpha: 0.25),
                                           borderRadius:
                                               BorderRadius.circular(14),
                                         ),
-                                        child: const Text(
-                                          'No sales yet — complete a checkout to see top products.',
+                                        child: Text(
+                                          l10n.text('noSalesYet'),
                                           style: TextStyle(
-                                            color: AppColors.textMuted,
+                                            color: sari.mutedText,
                                             fontSize: 13,
                                           ),
                                         ),
@@ -342,12 +353,12 @@ class DashboardScreen extends StatelessWidget {
                                             vertical: 12,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: AppColors.fieldGreen
+                                            color: sari.fieldFill
                                                 .withValues(alpha: 0.25),
                                             borderRadius:
                                                 BorderRadius.circular(14),
                                             border: Border.all(
-                                              color: AppColors.mintIcon
+                                              color: sari.success
                                                   .withValues(alpha: 0.2),
                                             ),
                                           ),
@@ -357,14 +368,14 @@ class DashboardScreen extends StatelessWidget {
                                                 padding:
                                                     const EdgeInsets.all(8),
                                                 decoration: BoxDecoration(
-                                                  color: AppColors.mintIcon
+                                                  color: sari.success
                                                       .withValues(alpha: 0.15),
                                                   borderRadius:
                                                       BorderRadius.circular(10),
                                                 ),
-                                                child: const Icon(
+                                                child: Icon(
                                                   Icons.shopping_bag_outlined,
-                                                  color: AppColors.mintIcon,
+                                                  color: sari.success,
                                                   size: 18,
                                                 ),
                                               ),
@@ -372,17 +383,22 @@ class DashboardScreen extends StatelessWidget {
                                               Expanded(
                                                 child: Text(
                                                   item.key,
-                                                  style: const TextStyle(
-                                                    color: AppColors.textWhite,
+                                                  style: TextStyle(
+                                                    color: scheme.onSurface,
                                                     fontSize: 14,
                                                     fontWeight: FontWeight.w500,
                                                   ),
                                                 ),
                                               ),
                                               Text(
-                                                '${item.value} pcs',
-                                                style: const TextStyle(
-                                                  color: AppColors.accentOrange,
+                                                l10n.text(
+                                                  'bestSellingPcs',
+                                                  values: {
+                                                    'count': '${item.value}'
+                                                  },
+                                                ),
+                                                style: TextStyle(
+                                                  color: sari.warning,
                                                   fontSize: 14,
                                                   fontWeight: FontWeight.bold,
                                                 ),

@@ -88,11 +88,21 @@ class _MainShellState extends State<MainShell> {
           MaterialPageRoute(builder: (_) => const CreditScreen()),
         );
         break;
+      case NotificationType.inventory:
+        setState(() => _currentIndex = MainShell.inventoryTab);
+        break;
+      case NotificationType.transaction:
+        setState(() => _currentIndex = MainShell.profileTab);
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const OrdersScreen()),
+        );
+        break;
     }
   }
 
   void _onNotifRelated(NotificationType type) {
-    if (type == NotificationType.lowStock) {
+    if (type == NotificationType.lowStock ||
+        type == NotificationType.inventory) {
       setState(() => _currentIndex = MainShell.inventoryTab);
     } else {
       _handleNotificationOpen(type);
@@ -109,6 +119,7 @@ class _MainShellState extends State<MainShell> {
           HomeScreen(
             onOpenCart: _openCart,
             onOpenNotif: _openNotif,
+            onOpenProfile: () => _onTabSelected(MainShell.profileTab),
           ),
           const InventoryScreen(),
           ScanScreen(

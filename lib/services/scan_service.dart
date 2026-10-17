@@ -1,13 +1,20 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import '../l10n/app_localizations.dart';
 import '../models/product.dart';
 import 'firebase_service.dart';
+import 'notification_store.dart';
+import 'settings_store.dart';
 
 class ScanService {
   ScanService({FirebaseService? firebase})
       : _firebase = firebase ?? FirebaseService();
 
   final FirebaseService _firebase;
+
+  AppLocalizations get _l10n => AppLocalizations(
+        Locale(SettingsStore.instance.languageCode),
+      );
 
   void _log(String message, [Object? error]) {
     if (error != null) {
@@ -26,7 +33,6 @@ class ScanService {
     return user.uid;
   }
 
-  
   Future<ScanResult> lookupBarcode(String barcode) async {
     final code = barcode.trim();
     _log('lookupBarcode code=$code');
@@ -34,26 +40,31 @@ class ScanService {
     if (code.isEmpty) {
       return ScanResult(
         success: false,
-        message: 'Empty barcode scanned.',
+        message: _l10n.text('emptyBarcode'),
       );
     }
 
     try {
       final product = await _firebase.getProductByBarcode(code);
       if (product == null) {
-        _log('Barcode not found: $code');
+        final catalog = await _firebase.getCatalogProductByBarcode(code);
+        _log('Barcode not in user inventory: $code catalog=${catalog?.name}');
         return ScanResult(
           success: true,
-          message: 'Bagong item — wala pang record sa inventory.',
+          message: _l10n.text('scanNoInventoryRecord'),
           barcode: code,
           found: false,
+          catalogSuggestion: catalog,
         );
       }
 
       _log('Barcode found: ${product.name} stock=${product.stock}');
       return ScanResult(
         success: true,
-        message: 'Nakita: ${product.name}',
+        message: _l10n.text(
+          'scanFoundProduct',
+          values: {'name': product.name},
+        ),
         barcode: code,
         found: true,
         itemName: product.name,
@@ -64,13 +75,15 @@ class ScanService {
       _log('lookupBarcode failed', e);
       return ScanResult(
         success: false,
-        message: 'Hindi ma-connect sa Firebase: $e',
+        message: _l10n.text(
+          'firebaseConnectionFailed',
+          values: {'error': '$e'},
+        ),
         barcode: code,
       );
     }
   }
 
-  
   Future<ScanResult> addToInventory({
     required String barcode,
     required String name,
@@ -79,12 +92,13 @@ class ScanService {
     required int quantity,
     String imageUrl = '',
     bool addToExistingStock = true,
+    String? catalogProductId,
   }) async {
     final uid = await _requireUser();
     if (uid == null) {
       return ScanResult(
         success: false,
-        message: 'Walang naka-login na user. Mag-login muna.',
+        message: _l10n.text('signInBeforeSaving'),
         barcode: barcode,
       );
     }
@@ -102,13 +116,29 @@ class ScanService {
         quantity: quantity,
         imageUrl: imageUrl,
         addToExistingStock: addToExistingStock,
+        catalogProductId: catalogProductId,
       );
+
+      await NotificationStore.instance.addInventoryEvent(
+        action: addToExistingStock ? 'added/updated' : 'registered',
+        productName: product.name,
+        stock: product.stock,
+      );
+
+      if (product.isLowStock || product.isOutOfStock) {
+        await NotificationStore.instance.addLowStockAlert(
+          productName: product.name,
+          stock: product.stock,
+        );
+      }
 
       _log('addToInventory OK stock=${product.stock}');
       return ScanResult(
         success: true,
-        message:
-            'Na-save sa inventory: ${product.name} (stock ${product.stock})',
+        message: _l10n.text(
+          'inventorySaved',
+          values: {'name': product.name, 'stock': '${product.stock}'},
+        ),
         barcode: barcode,
         found: true,
         itemName: product.name,
@@ -119,12 +149,14 @@ class ScanService {
       _log('addToInventory failed', e);
       return ScanResult(
         success: false,
-        message: 'Hindi na-save ang inventory: $e',
+        message: _l10n.text(
+          'inventorySaveFailed',
+          values: {'error': '$e'},
+        ),
         barcode: barcode,
       );
     }
   }
-
 
   Future<ScanResult> addStock({
     required String barcode,
@@ -134,7 +166,7 @@ class ScanService {
     if (uid == null) {
       return ScanResult(
         success: false,
-        message: 'Walang naka-login na user. Mag-login muna.',
+        message: _l10n.text('signInBeforeSaving'),
         barcode: barcode,
       );
     }
@@ -144,10 +176,18 @@ class ScanService {
     try {
       await _firebase.addStock(barcode, quantity);
       final updated = await _firebase.getProductByBarcode(barcode);
+      final total = updated == null
+          ? ''
+          : _l10n.text(
+              'stockTotalMessage',
+              values: {'stock': '${updated.stock}'},
+            );
       return ScanResult(
         success: true,
-        message:
-            'Added +$quantity stock${updated != null ? ' (new total: ${updated.stock})' : ''}',
+        message: _l10n.text(
+          'stockAddedMessage',
+          values: {'quantity': '$quantity', 'total': total},
+        ),
         barcode: barcode,
         found: true,
         itemName: updated?.name,
@@ -158,7 +198,10 @@ class ScanService {
       _log('addStock failed', e);
       return ScanResult(
         success: false,
-        message: 'Hindi na-update ang stock: $e',
+        message: _l10n.text(
+          'stockUpdateFailed',
+          values: {'error': '$e'},
+        ),
         barcode: barcode,
       );
     }
@@ -174,6 +217,7 @@ class ScanResult {
   final int? newStockCount;
   final double? checkoutTotal;
   final Product? product;
+  final Product? catalogSuggestion;
 
   ScanResult({
     required this.success,
@@ -184,5 +228,6 @@ class ScanResult {
     this.newStockCount,
     this.checkoutTotal,
     this.product,
+    this.catalogSuggestion,
   });
 }

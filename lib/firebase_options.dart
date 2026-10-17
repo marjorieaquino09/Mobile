@@ -34,7 +34,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '240909232949',
     projectId: 'sari-89290',
     authDomain: 'sari-89290.firebaseapp.com',
-    databaseURL: 'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'sari-89290.firebasestorage.app',
   );
 
@@ -43,7 +44,8 @@ class DefaultFirebaseOptions {
     appId: '1:240909232949:android:d11a9ea0fe706dee387a7c',
     messagingSenderId: '240909232949',
     projectId: 'sari-89290',
-    databaseURL: 'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'sari-89290.firebasestorage.app',
   );
 
@@ -52,7 +54,8 @@ class DefaultFirebaseOptions {
     appId: '1:240909232949:ios:019c7655c847cd82387a7c',
     messagingSenderId: '240909232949',
     projectId: 'sari-89290',
-    databaseURL: 'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'sari-89290.firebasestorage.app',
     iosBundleId: 'com.example.sariSari',
   );
@@ -62,7 +65,8 @@ class DefaultFirebaseOptions {
     appId: '1:240909232949:ios:019c7655c847cd82387a7c',
     messagingSenderId: '240909232949',
     projectId: 'sari-89290',
-    databaseURL: 'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'sari-89290.firebasestorage.app',
     iosBundleId: 'com.example.sariSari',
   );
@@ -73,7 +77,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '240909232949',
     projectId: 'sari-89290',
     authDomain: 'sari-89290.firebaseapp.com',
-    databaseURL: 'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://sari-89290-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'sari-89290.firebasestorage.app',
   );
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../core/theme/app_theme.dart';
 
 class StatCard extends StatelessWidget {
   final String label;
@@ -19,12 +20,15 @@ class StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sari = context.sari;
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: AppColors.fieldGreen.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.mintIcon.withValues(alpha: 0.3)),
+        color: sari.cardSurface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: sari.cardBorder, width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -36,9 +40,10 @@ class StatCard extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
+                  style: GoogleFonts.outfit(
+                    color: sari.mutedText,
                     fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
@@ -46,8 +51,8 @@ class StatCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Icon(
                   icon,
-                  size: 17,
-                  color: iconColor ?? AppColors.mintIcon,
+                  size: 18,
+                  color: iconColor ?? scheme.primary,
                 ),
               ],
             ],
@@ -59,10 +64,10 @@ class StatCard extends StatelessWidget {
             child: Text(
               value,
               maxLines: 1,
-              style: TextStyle(
-                color: valueColor ?? AppColors.textWhite,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+              style: GoogleFonts.outfit(
+                color: valueColor ?? scheme.onSurface,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),

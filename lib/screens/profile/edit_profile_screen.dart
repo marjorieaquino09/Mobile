@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_localizations.dart';
+import '../../services/user_profile_store.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/product_image.dart';
 
@@ -20,6 +22,9 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  SariColors get sari => context.sari;
+  ColorScheme get scheme => Theme.of(context).colorScheme;
+
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -30,7 +35,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _addressController = TextEditingController();
 
   final ImagePicker _picker = ImagePicker();
-  static final DateFormat _displayFormat = DateFormat('MMM d, yyyy');
   static final DateFormat _storageFormat = DateFormat('yyyy-MM-dd');
 
   String _photoDataUrl = '';
@@ -109,8 +113,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load profile: $e'),
-            backgroundColor: AppColors.accentRed,
+            content: Text(context.l10n.text(
+              'profileLoadFailed',
+              values: {'error': '$e'},
+            )),
+            backgroundColor: sari.danger,
           ),
         );
       }
@@ -122,7 +129,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _pickPhoto() async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
-      backgroundColor: AppColors.darkGreenMid,
+      backgroundColor: sari.cardSurfaceStrong,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -137,30 +144,27 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: AppColors.textFaint.withValues(alpha: 0.5),
+                  color: sari.faintText.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library,
-                    color: AppColors.mintIcon),
-                title: const Text('Gallery',
-                    style: TextStyle(color: AppColors.textWhite)),
+                leading: Icon(Icons.photo_library, color: sari.success),
+                title: Text(context.l10n.text('gallery'),
+                    style: TextStyle(color: scheme.onSurface)),
                 onTap: () => Navigator.pop(ctx, ImageSource.gallery),
               ),
               ListTile(
-                leading:
-                    const Icon(Icons.camera_alt, color: AppColors.mintIcon),
-                title: const Text('Camera',
-                    style: TextStyle(color: AppColors.textWhite)),
+                leading: Icon(Icons.camera_alt, color: sari.success),
+                title: Text(context.l10n.text('camera'),
+                    style: TextStyle(color: scheme.onSurface)),
                 onTap: () => Navigator.pop(ctx, ImageSource.camera),
               ),
               if (_photoDataUrl.isNotEmpty)
                 ListTile(
-                  leading: const Icon(Icons.delete_outline,
-                      color: AppColors.accentRed),
-                  title: const Text('Remove photo',
-                      style: TextStyle(color: AppColors.accentRed)),
+                  leading: Icon(Icons.delete_outline, color: sari.danger),
+                  title: Text(context.l10n.text('removePhoto'),
+                      style: TextStyle(color: sari.danger)),
                   onTap: () {
                     Navigator.pop(ctx);
                     setState(() {
@@ -188,11 +192,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (bytes.lengthInBytes > _maxPhotoBytes) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Photo is too large. Pick a smaller image or crop closer.',
+              context.l10n.text('photoTooLarge'),
             ),
-            backgroundColor: AppColors.accentRed,
+            backgroundColor: sari.danger,
           ),
         );
         return;
@@ -205,8 +209,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Could not pick photo: $e'),
-          backgroundColor: AppColors.accentRed,
+          content: Text(context.l10n.text(
+            'couldNotPickPhoto',
+            values: {'error': '$e'},
+          )),
+          backgroundColor: sari.danger,
         ),
       );
     }
@@ -216,8 +223,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final now = DateTime.now();
     final latest = DateTime(now.year - 13, now.month, now.day);
     final earliest = DateTime(now.year - 100, now.month, now.day);
-    final initial =
-        _birthDate ?? DateTime(now.year - 18, now.month, now.day);
+    final initial = _birthDate ?? DateTime(now.year - 18, now.month, now.day);
 
     final picked = await showDatePicker(
       context: context,
@@ -226,18 +232,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           : (initial.isAfter(latest) ? latest : initial),
       firstDate: earliest,
       lastDate: latest,
-      helpText: 'Select your birthday',
+      helpText: context.l10n.text('selectBirthday'),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppColors.accentOrange,
-              onPrimary: AppColors.darkGreenTop,
-              surface: AppColors.darkGreenMid,
-              onSurface: AppColors.textWhite,
+            colorScheme: scheme.copyWith(
+              primary: sari.warning,
+              onPrimary: sari.onAccentAmber,
+              surface: sari.cardSurfaceStrong,
+              onSurface: scheme.onSurface,
             ),
-            dialogTheme: const DialogThemeData(
-              backgroundColor: AppColors.darkGreenMid,
+            dialogTheme: DialogThemeData(
+              backgroundColor: sari.cardSurfaceStrong,
             ),
           ),
           child: child!,
@@ -252,16 +258,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   String? _required(String? value, String label) {
     if (value == null || value.trim().isEmpty) {
-      return '$label is required';
+      return context.l10n.text('requiredField', values: {'field': label});
     }
     return null;
   }
 
   String? _validateEmail(String? value) {
     final email = (value ?? '').trim();
-    if (email.isEmpty) return 'Email is required';
+    if (email.isEmpty) {
+      return context.l10n.text(
+        'requiredField',
+        values: {'field': context.l10n.text('email')},
+      );
+    }
     final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
-    if (!ok) return 'Enter a valid email address';
+    if (!ok) return context.l10n.text('validEmail');
     return null;
   }
 
@@ -270,7 +281,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (phone.isEmpty) return null;
     final digits = phone.replaceAll(RegExp(r'\D'), '');
     if (digits.length < 7 || digits.length > 15) {
-      return 'Enter a valid phone number';
+      return context.l10n.text('validPhone');
     }
     return null;
   }
@@ -278,12 +289,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String? _validateUsername(String? value) {
     final username = (value ?? '').trim();
     if (username.isEmpty) return null; // optional
-    if (username.length < 3) return 'Username must be at least 3 characters';
+    if (username.length < 3) {
+      return context.l10n.text('usernameMinLength');
+    }
     if (username.length > _maxUsernameLength) {
-      return 'Username is too long';
+      return context.l10n.text('usernameTooLong');
     }
     if (!RegExp(r'^[a-zA-Z0-9._]+$').hasMatch(username)) {
-      return 'Use letters, numbers, dots, or underscores only';
+      return context.l10n.text('usernameCharacters');
     }
     return null;
   }
@@ -292,9 +305,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No signed-in user. Please log in again.'),
-          backgroundColor: AppColors.accentRed,
+        SnackBar(
+          content: Text(context.l10n.text('noSignedInUserLogin')),
+          backgroundColor: sari.danger,
         ),
       );
       return;
@@ -316,11 +329,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (_photoDataUrl.startsWith('data:image') &&
         _photoDataUrl.length > maxEncodedChars) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Profile photo is too large to save. Choose a smaller image.',
+            context.l10n.text('profilePhotoTooLarge'),
           ),
-          backgroundColor: AppColors.accentRed,
+          backgroundColor: sari.danger,
         ),
       );
       return;
@@ -343,23 +356,24 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         payload['dateOfBirth'] = _storageFormat.format(_birthDate!);
       }
 
+      final appL10n = context.l10n;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .set(payload, SetOptions(merge: true));
 
-      String successMessage = 'Profile saved.';
+      String successMessage = appL10n.text('profileSaved');
 
       if (user.email != null &&
           user.email!.toLowerCase() != email.toLowerCase()) {
         try {
           await user.verifyBeforeUpdateEmail(email);
-          successMessage =
-              'Profile saved. Check your inbox to confirm the new email.';
+          successMessage = appL10n.text('profileEmailUpdated');
         } catch (e) {
           debugPrint('Auth email update skipped: $e');
-          successMessage =
-              'Profile saved. Email login was not changed (re-login may be required to update it).';
+          successMessage = appL10n.text('profileEmailNotUpdated');
         }
       }
 
@@ -372,20 +386,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         }
       }
 
+      await UserProfileStore.instance.reload();
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         SnackBar(
           content: Text(successMessage),
-          backgroundColor: AppColors.mediumGreen,
+          backgroundColor: scheme.primary,
         ),
       );
-      Navigator.of(context).pop(true);
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(
         SnackBar(
-          content: Text('Save failed: $e'),
-          backgroundColor: AppColors.accentRed,
+          content: Text(context.l10n.text(
+            'profileSaveFailed',
+            values: {'error': '$e'},
+          )),
+          backgroundColor: sari.danger,
         ),
       );
     } finally {
@@ -399,12 +421,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     return Scaffold(
       body: Container(
-        decoration:
-            const BoxDecoration(gradient: AppColors.darkBackgroundGradient),
+        decoration: BoxDecoration(gradient: sari.screenGradient),
         child: SafeArea(
           child: _loading
-              ? const Center(
-                  child: CircularProgressIndicator(color: AppColors.mintIcon),
+              ? Center(
+                  child: CircularProgressIndicator(color: sari.success),
                 )
               : Column(
                   children: [
@@ -413,18 +434,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       child: Row(
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.arrow_back,
-                                color: AppColors.textWhite),
+                            icon:
+                                Icon(Icons.arrow_back, color: scheme.onSurface),
                             onPressed: _saving
                                 ? null
                                 : () => Navigator.of(context).pop(false),
                           ),
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'Edit Profile',
+                              context.l10n.text('editProfile'),
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: AppColors.textWhite,
+                                color: scheme.onSurface,
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -433,11 +454,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           TextButton(
                             onPressed: _saving ? null : _save,
                             child: Text(
-                              'Save',
+                              context.l10n.text('save'),
                               style: TextStyle(
-                                color: _saving
-                                    ? AppColors.textFaint
-                                    : AppColors.accentOrange,
+                                color: _saving ? sari.faintText : sari.warning,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -450,10 +469,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         key: _formKey,
                         child: ListView(
                           padding: EdgeInsets.fromLTRB(
-                            20,
-                            8,
-                            20,
-                            24 + bottomInset,
+                            16,
+                            4,
+                            16,
+                            16 + bottomInset,
                           ),
                           keyboardDismissBehavior:
                               ScrollViewKeyboardDismissBehavior.onDrag,
@@ -468,8 +487,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                     alignment: Alignment.bottomRight,
                                     children: [
                                       CircleAvatar(
-                                        radius: 52,
-                                        backgroundColor: AppColors.fieldGreen,
+                                        radius: 40,
+                                        backgroundColor: sari.fieldFill,
                                         backgroundImage: _photoBytes != null
                                             ? MemoryImage(_photoBytes!)
                                             : null,
@@ -478,57 +497,58 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                                 ? ClipOval(
                                                     child: ProductImage(
                                                       imageUrl: _photoDataUrl,
-                                                      width: 104,
-                                                      height: 104,
+                                                      width: 80,
+                                                      height: 80,
                                                       fit: BoxFit.cover,
                                                     ),
                                                   )
-                                                : const Icon(Icons.person,
-                                                    size: 44,
-                                                    color:
-                                                        AppColors.textWhite))
+                                                : Icon(Icons.person,
+                                                    size: 36,
+                                                    color: scheme.onSurface))
                                             : null,
                                       ),
                                       Container(
-                                        padding: const EdgeInsets.all(8),
+                                        padding: const EdgeInsets.all(6),
                                         decoration: BoxDecoration(
-                                          color: AppColors.accentOrange,
+                                          color: sari.warning,
                                           shape: BoxShape.circle,
                                           border: Border.all(
-                                            color: AppColors.darkGreenTop,
+                                            color: sari.cardSurfaceStrong,
                                             width: 2,
                                           ),
                                         ),
-                                        child: const Icon(Icons.camera_alt,
-                                            size: 16,
-                                            color: AppColors.darkGreenTop),
+                                        child: Icon(
+                                          Icons.camera_alt,
+                                          size: 14,
+                                          color: sari.onAccentAmber,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            const Center(
+                            const SizedBox(height: 4),
+                            Center(
                               child: Text(
-                                'Tap to change profile picture',
+                                context.l10n.text('tapChangeProfilePhoto'),
                                 style: TextStyle(
-                                  color: AppColors.textFaint,
-                                  fontSize: 12,
+                                  color: sari.faintText,
+                                  fontSize: 11,
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 22),
-                            _sectionLabel('PERSONAL'),
+                            const SizedBox(height: 12),
+                            _sectionLabel(context.l10n.text('personalSection')),
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(
                                   child: _field(
-                                    'First name',
+                                    context.l10n.text('firstName'),
                                     _firstNameController,
-                                    validator: (v) =>
-                                        _required(v, 'First name'),
+                                    validator: (v) => _required(
+                                        v, context.l10n.text('firstName')),
                                     textCapitalization:
                                         TextCapitalization.words,
                                   ),
@@ -536,10 +556,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: _field(
-                                    'Last name',
+                                    context.l10n.text('lastName'),
                                     _lastNameController,
-                                    validator: (v) =>
-                                        _required(v, 'Last name'),
+                                    validator: (v) => _required(
+                                        v, context.l10n.text('lastName')),
                                     textCapitalization:
                                         TextCapitalization.words,
                                   ),
@@ -547,9 +567,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               ],
                             ),
                             _field(
-                              'Username',
+                              context.l10n.text('username'),
                               _usernameController,
-                              hint: 'optional · letters, numbers, ._ ',
+                              hint: context.l10n.text('optionalUsernameHint'),
                               validator: _validateUsername,
                               inputFormatters: [
                                 FilteringTextInputFormatter.allow(
@@ -562,31 +582,34 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                             _birthdayField(),
                             const SizedBox(height: 8),
-                            _sectionLabel('STORE & CONTACT'),
+                            _sectionLabel(
+                                context.l10n.text('storeContactSection')),
                             _field(
-                              'Store name',
+                              context.l10n.text('storeName'),
                               _storeController,
-                              validator: (v) => _required(v, 'Store name'),
+                              validator: (v) =>
+                                  _required(v, context.l10n.text('storeName')),
                               textCapitalization: TextCapitalization.words,
                             ),
                             _field(
-                              'Email',
+                              context.l10n.text('email'),
                               _emailController,
                               keyboardType: TextInputType.emailAddress,
                               validator: _validateEmail,
                             ),
                             _field(
-                              'Phone',
+                              context.l10n.text('phone'),
                               _phoneController,
                               keyboardType: TextInputType.phone,
-                              hint: 'optional',
+                              hint: context.l10n.text('optional'),
                               validator: _validatePhone,
                             ),
                             _field(
-                              'Address',
+                              context.l10n.text('address'),
                               _addressController,
                               maxLines: 2,
-                              validator: (v) => _required(v, 'Address'),
+                              validator: (v) =>
+                                  _required(v, context.l10n.text('address')),
                               textCapitalization: TextCapitalization.sentences,
                             ),
                             const SizedBox(height: 16),
@@ -596,27 +619,27 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               child: ElevatedButton(
                                 onPressed: _saving ? null : _save,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.accentOrange,
-                                  foregroundColor: AppColors.darkGreenTop,
-                                  disabledBackgroundColor: AppColors
-                                      .accentOrange
-                                      .withValues(alpha: 0.45),
+                                  backgroundColor: sari.warning,
+                                  foregroundColor: sari.onAccentAmber,
+                                  disabledBackgroundColor:
+                                      sari.warning.withValues(alpha: 0.45),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(30),
                                   ),
                                 ),
                                 child: _saving
-                                    ? const SizedBox(
+                                    ? SizedBox(
                                         height: 22,
                                         width: 22,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2.5,
-                                          color: AppColors.darkGreenTop,
+                                          color: sari.onAccentAmber,
                                         ),
                                       )
-                                    : const Text(
-                                        'Save Profile',
+                                    : Text(
+                                        context.l10n.text('saveProfile'),
                                         style: TextStyle(
+                                          color: sari.onAccentAmber,
                                           fontWeight: FontWeight.bold,
                                           fontSize: 16,
                                         ),
@@ -632,18 +655,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                     ? null
                                     : () => Navigator.of(context).pop(false),
                                 style: TextButton.styleFrom(
-                                  foregroundColor: AppColors.textMuted,
+                                  foregroundColor: sari.mutedText,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(30),
                                     side: BorderSide(
-                                      color: AppColors.mintIcon
-                                          .withValues(alpha: 0.35),
+                                      color: sari.cardBorder,
                                     ),
                                   ),
                                 ),
-                                child: const Text(
-                                  'Cancel',
-                                  style: TextStyle(
+                                child: Text(
+                                  context.l10n.text('cancel'),
+                                  style: const TextStyle(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 15,
                                   ),
@@ -666,8 +688,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         padding: const EdgeInsets.only(bottom: 10, top: 4),
         child: Text(
           text,
-          style: const TextStyle(
-            color: AppColors.textFaint,
+          style: TextStyle(
+            color: sari.faintText,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.7,
@@ -685,14 +707,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           borderRadius: BorderRadius.circular(16),
           child: InputDecorator(
             decoration: InputDecoration(
-              labelText: 'Birthday',
-              labelStyle: const TextStyle(color: AppColors.textMuted),
+              labelText: context.l10n.text('birthday'),
+              labelStyle: TextStyle(color: sari.mutedText),
               filled: true,
-              fillColor: AppColors.fieldGreen.withValues(alpha: 0.45),
+              fillColor: sari.fieldFill.withValues(alpha: 0.45),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-              suffixIcon: const Icon(Icons.calendar_today_outlined,
-                  color: AppColors.textFaint, size: 18),
+              suffixIcon: Icon(Icons.calendar_today_outlined,
+                  color: sari.faintText, size: 18),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
@@ -700,18 +722,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide(
-                  color: AppColors.mintIcon.withValues(alpha: 0.2),
+                  color: sari.success.withValues(alpha: 0.2),
                 ),
               ),
             ),
             child: Text(
               _birthDate != null
-                  ? _displayFormat.format(_birthDate!)
-                  : 'Select your birthday',
+                  ? DateFormat(
+                      'MMM d, yyyy',
+                      Localizations.localeOf(context).languageCode,
+                    ).format(_birthDate!)
+                  : context.l10n.text('selectBirthday'),
               style: TextStyle(
-                color: _birthDate != null
-                    ? AppColors.textWhite
-                    : AppColors.textFaint,
+                color: _birthDate != null ? scheme.onSurface : sari.faintText,
                 fontSize: 15,
               ),
             ),
@@ -732,7 +755,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     List<TextInputFormatter>? inputFormatters,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: TextFormField(
         controller: controller,
         keyboardType: keyboardType,
@@ -741,41 +764,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         enabled: !_saving,
         textCapitalization: textCapitalization,
         inputFormatters: inputFormatters,
-        style: const TextStyle(color: AppColors.textWhite),
+        style: TextStyle(color: scheme.onSurface),
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
-          labelStyle: const TextStyle(color: AppColors.textMuted),
-          hintStyle: const TextStyle(color: AppColors.textFaint, fontSize: 13),
-          errorStyle: const TextStyle(color: AppColors.accentOrange),
+          labelStyle: TextStyle(color: sari.mutedText),
+          hintStyle: TextStyle(color: sari.faintText, fontSize: 13),
+          errorStyle: TextStyle(color: sari.warning),
           filled: true,
-          fillColor: AppColors.fieldGreen.withValues(alpha: 0.45),
+          fillColor: sari.fieldFill.withValues(alpha: 0.45),
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          isDense: true,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(
-              color: AppColors.mintIcon.withValues(alpha: 0.2),
+              color: sari.success.withValues(alpha: 0.2),
             ),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: AppColors.accentOrange,
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: sari.warning,
               width: 1.2,
             ),
           ),
           errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: AppColors.accentRed),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: sari.danger),
           ),
           focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: AppColors.accentRed, width: 1.2),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: sari.danger, width: 1.2),
           ),
         ),
       ),

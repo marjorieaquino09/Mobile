@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_card.dart';
@@ -14,6 +13,7 @@ import '../../services/firebase_service.dart';
 import '../../services/notification_store.dart';
 import '../../services/product_repository.dart';
 import '../../services/settings_store.dart';
+import '../../services/user_profile_store.dart';
 import '../../widgets/stat_card.dart';
 import '../home/product_detail_screen.dart';
 
@@ -31,22 +31,18 @@ class InventoryScreen extends StatefulWidget {
 
 class _InventoryScreenState extends State<InventoryScreen> {
   final ProductRepository _products = ProductRepository.instance;
+  final UserProfileStore _profile = UserProfileStore.instance;
   final FirebaseService _firebase = FirebaseService();
-  late Stream<List<Product>> _productStream;
   final _searchController = TextEditingController();
-  String _storeName = 'Loading...';
 
   @override
   void initState() {
     super.initState();
-    _productStream = _products.watchProducts();
-    _fetchStoreName();
+    _profile.ensureLoaded();
   }
 
   void _retryProducts() {
-    setState(() {
-      _productStream = _products.watchProducts();
-    });
+    _products.refreshProducts();
   }
 
   int _bestSellerQuantity(
@@ -85,35 +81,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
     return quantities.values
         .fold<int>(0, (best, quantity) => quantity > best ? quantity : best);
-  }
-
-  Future<void> _fetchStoreName() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-
-        if (doc.exists && doc.data() != null) {
-          if (!mounted) return;
-          setState(() {
-            _storeName = doc.data()!['storeName'] ?? 'Sari-Sari Store';
-          });
-        }
-      } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _storeName = widget.userName ?? 'Sari-Sari Store';
-        });
-      }
-    } else {
-      if (!mounted) return;
-      setState(() {
-        _storeName = widget.userName ?? 'Sari-Sari Store';
-      });
-    }
   }
 
   @override
@@ -229,7 +196,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                final parsedPrice = double.tryParse(priceController.text.trim());
+                final parsedPrice =
+                    double.tryParse(priceController.text.trim());
                 final parsedStock = int.tryParse(stockController.text.trim());
                 if (parsedPrice == null || parsedPrice < 0) {
                   if (dialogCtx.mounted) {
@@ -524,330 +492,346 @@ class _InventoryScreenState extends State<InventoryScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        child: ListenableBuilder(
+          listenable: Listenable.merge([
+            _profile,
+            _products.productsWatchGeneration,
+          ]),
+          builder: (context, _) {
+            final storeName = _profile.headerStoreName;
+            final productStream = _products.watchProducts();
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: sari.fieldFill,
-                    child: Icon(
-                      Icons.storefront_rounded,
-                      color: scheme.primary,
-                      size: 20,
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: sari.fieldFill,
+                        child: Icon(
+                          Icons.storefront_rounded,
+                          color: scheme.primary,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              storeName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(
+                                color: scheme.onSurface,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              context.l10n.text('manageStore'),
+                              style: GoogleFonts.outfit(
+                                color: sari.mutedText,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          Icons.add_circle_outline_rounded,
+                          color: sari.accentAmber,
+                          size: 24,
+                        ),
+                        tooltip: context.l10n.text('addItem'),
+                        onPressed: _openAddProduct,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Search input
+                  TextField(
+                    controller: _searchController,
+                    onChanged: (_) => setState(() {}),
+                    style: GoogleFonts.outfit(
+                      color: scheme.onSurface,
+                      fontSize: 14,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: context.l10n.text('searchItems'),
+                      hintStyle: GoogleFonts.outfit(
+                        color: sari.faintText,
+                        fontSize: 13,
+                      ),
+                      prefixIcon:
+                          Icon(Icons.search, color: sari.mutedText, size: 20),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(Icons.clear,
+                                  color: sari.mutedText, size: 18),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {});
+                              },
+                            )
+                          : null,
+                      filled: true,
+                      fillColor: sari.fieldFill,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(height: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _storeName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.outfit(
-                            color: scheme.onSurface,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          context.l10n.text('manageStore'),
-                          style: GoogleFonts.outfit(
-                            color: sari.mutedText,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                    child: StreamBuilder<List<Product>>(
+                      stream: productStream,
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return EmptyState(
+                            icon: Icons.error_outline_rounded,
+                            title: context.l10n.text('inventoryLoadFailed'),
+                            message: '${snapshot.error}',
+                            actionLabel: context.l10n.text('tryAgain'),
+                            onAction: _retryProducts,
+                          );
+                        }
+
+                        if (!snapshot.hasData) {
+                          return const LoadingIndicator();
+                        }
+
+                        final products = snapshot.data!;
+
+                        final filteredProducts = products.where((p) {
+                          final query = _searchController.text.toLowerCase();
+                          return p.name.toLowerCase().contains(query) ||
+                              p.barcode.toLowerCase().contains(query) ||
+                              p.category.toLowerCase().contains(query);
+                        }).toList();
+
+                        final totalItems = products.length;
+                        final lowStock =
+                            products.where((p) => p.isLowStock).length;
+                        final outOfStock =
+                            products.where((p) => p.isOutOfStock).length;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: StatCard(
+                                    label: context.l10n.text('totalItemsStat'),
+                                    value: '$totalItems',
+                                    icon: Icons.inventory_2_outlined,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: StatCard(
+                                    label: context.l10n.text('lowStockStat'),
+                                    value: '$lowStock',
+                                    valueColor:
+                                        lowStock > 0 ? sari.accentAmber : null,
+                                    icon: Icons.warning_amber_rounded,
+                                    iconColor: sari.accentAmber,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: StreamBuilder<QuerySnapshot>(
+                                    stream:
+                                        _firebase.getOrdersStream(limit: 200),
+                                    builder: (context, ordersSnapshot) {
+                                      final value = ordersSnapshot.hasError
+                                          ? '—'
+                                          : '${_bestSellerQuantity(
+                                              products,
+                                              ordersSnapshot.data,
+                                            )}';
+                                      return StatCard(
+                                        label: context.l10n
+                                            .text('bestSellersStat'),
+                                        value: value,
+                                        icon: Icons.trending_up_rounded,
+                                      );
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: StatCard(
+                                    label: context.l10n.text('outOfStockStat'),
+                                    value: '$outOfStock',
+                                    valueColor:
+                                        outOfStock > 0 ? sari.danger : null,
+                                    icon: Icons.remove_circle_outline_rounded,
+                                    iconColor: sari.danger,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Expanded(
+                              child: AppCard(
+                                padding: const EdgeInsets.all(10),
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    // Card-style rows below ~400 logical px so
+                                    // edit+delete never clip at 320/360/411 dp.
+                                    final narrow = constraints.maxWidth < 400;
+                                    final headerStyle = GoogleFonts.outfit(
+                                      color: sari.mutedText,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    );
+
+                                    return Column(
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 4,
+                                          ),
+                                          child: narrow
+                                              ? Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        context.l10n
+                                                            .text('colItem'),
+                                                        style: headerStyle,
+                                                      ),
+                                                    ),
+                                                    SizedBox(
+                                                      width: 88,
+                                                      child: Text(
+                                                        context.l10n
+                                                            .text('colActions'),
+                                                        textAlign:
+                                                            TextAlign.end,
+                                                        style: headerStyle,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                )
+                                              : Row(
+                                                  children: [
+                                                    Expanded(
+                                                      flex: 4,
+                                                      child: Text(
+                                                        context.l10n
+                                                            .text('colItem'),
+                                                        style: headerStyle,
+                                                      ),
+                                                    ),
+                                                    Expanded(
+                                                      flex: 2,
+                                                      child: Text(
+                                                        context.l10n
+                                                            .text('colCode'),
+                                                        style: headerStyle,
+                                                      ),
+                                                    ),
+                                                    Expanded(
+                                                      flex: 2,
+                                                      child: Text(
+                                                        context.l10n
+                                                            .text('colPrice'),
+                                                        style: headerStyle,
+                                                      ),
+                                                    ),
+                                                    Expanded(
+                                                      flex: 2,
+                                                      child: Text(
+                                                        context.l10n
+                                                            .text('colStock'),
+                                                        style: headerStyle,
+                                                      ),
+                                                    ),
+                                                    SizedBox(
+                                                      width: 88,
+                                                      child: Text(
+                                                        context.l10n
+                                                            .text('colActions'),
+                                                        textAlign:
+                                                            TextAlign.end,
+                                                        style: headerStyle,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                        ),
+                                        Divider(
+                                          color: sari.cardBorder,
+                                          thickness: 1,
+                                          height: 8,
+                                        ),
+                                        Expanded(
+                                          child: filteredProducts.isEmpty
+                                              ? Center(
+                                                  child: Text(
+                                                    context.l10n
+                                                        .text('noProducts'),
+                                                    style: GoogleFonts.outfit(
+                                                      color: sari.mutedText,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                )
+                                              : ListView.separated(
+                                                  physics:
+                                                      const BouncingScrollPhysics(),
+                                                  itemCount:
+                                                      filteredProducts.length,
+                                                  separatorBuilder: (_, __) =>
+                                                      Divider(
+                                                    color: sari.cardBorder,
+                                                    height: 1,
+                                                    thickness: 0.5,
+                                                  ),
+                                                  itemBuilder:
+                                                      (context, index) {
+                                                    return _productListRow(
+                                                      product: filteredProducts[
+                                                          index],
+                                                      narrow: narrow,
+                                                      scheme: scheme,
+                                                      sari: sari,
+                                                    );
+                                                  },
+                                                ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      Icons.add_circle_outline_rounded,
-                      color: sari.accentAmber,
-                      size: 24,
-                    ),
-                    tooltip: context.l10n.text('addItem'),
-                    onPressed: _openAddProduct,
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              // Search input
-              TextField(
-                controller: _searchController,
-                onChanged: (_) => setState(() {}),
-                style: GoogleFonts.outfit(
-                  color: scheme.onSurface,
-                  fontSize: 14,
-                ),
-                decoration: InputDecoration(
-                  hintText: context.l10n.text('searchItems'),
-                  hintStyle: GoogleFonts.outfit(
-                    color: sari.faintText,
-                    fontSize: 13,
-                  ),
-                  prefixIcon:
-                      Icon(Icons.search, color: sari.mutedText, size: 20),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.clear,
-                              color: sari.mutedText, size: 18),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {});
-                          },
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: sari.fieldFill,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(30),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: StreamBuilder<List<Product>>(
-                  stream: _productStream,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting &&
-                        !snapshot.hasData &&
-                        !snapshot.hasError) {
-                      return const LoadingIndicator();
-                    }
-
-                    if (snapshot.hasError) {
-                      return EmptyState(
-                        icon: Icons.error_outline_rounded,
-                        title: context.l10n.text('inventoryLoadFailed'),
-                        message: '${snapshot.error}',
-                        actionLabel: context.l10n.text('tryAgain'),
-                        onAction: _retryProducts,
-                      );
-                    }
-
-                    final products = snapshot.data ?? const <Product>[];
-
-                    final filteredProducts = products.where((p) {
-                      final query = _searchController.text.toLowerCase();
-                      return p.name.toLowerCase().contains(query) ||
-                          p.barcode.toLowerCase().contains(query) ||
-                          p.category.toLowerCase().contains(query);
-                    }).toList();
-
-                    final totalItems = products.length;
-                    final lowStock = products.where((p) => p.isLowStock).length;
-                    final outOfStock =
-                        products.where((p) => p.isOutOfStock).length;
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: StatCard(
-                                label: context.l10n.text('totalItemsStat'),
-                                value: '$totalItems',
-                                icon: Icons.inventory_2_outlined,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: StatCard(
-                                label: context.l10n.text('lowStockStat'),
-                                value: '$lowStock',
-                                valueColor:
-                                    lowStock > 0 ? sari.accentAmber : null,
-                                icon: Icons.warning_amber_rounded,
-                                iconColor: sari.accentAmber,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: StreamBuilder<QuerySnapshot>(
-                                stream: _firebase.getOrdersStream(limit: 200),
-                                builder: (context, ordersSnapshot) {
-                                  final value = ordersSnapshot.hasError
-                                      ? '—'
-                                      : '${_bestSellerQuantity(
-                                          products,
-                                          ordersSnapshot.data,
-                                        )}';
-                                  return StatCard(
-                                    label: context.l10n.text('bestSellersStat'),
-                                    value: value,
-                                    icon: Icons.trending_up_rounded,
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: StatCard(
-                                label: context.l10n.text('outOfStockStat'),
-                                value: '$outOfStock',
-                                valueColor: outOfStock > 0 ? sari.danger : null,
-                                icon: Icons.remove_circle_outline_rounded,
-                                iconColor: sari.danger,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: AppCard(
-                            padding: const EdgeInsets.all(10),
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                // Card-style rows below ~400 logical px so
-                                // edit+delete never clip at 320/360/411 dp.
-                                final narrow = constraints.maxWidth < 400;
-                                final headerStyle = GoogleFonts.outfit(
-                                  color: sari.mutedText,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                );
-
-                                return Column(
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 4,
-                                      ),
-                                      child: narrow
-                                          ? Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    context.l10n
-                                                        .text('colItem'),
-                                                    style: headerStyle,
-                                                  ),
-                                                ),
-                                                SizedBox(
-                                                  width: 88,
-                                                  child: Text(
-                                                    context.l10n
-                                                        .text('colActions'),
-                                                    textAlign: TextAlign.end,
-                                                    style: headerStyle,
-                                                  ),
-                                                ),
-                                              ],
-                                            )
-                                          : Row(
-                                              children: [
-                                                Expanded(
-                                                  flex: 4,
-                                                  child: Text(
-                                                    context.l10n
-                                                        .text('colItem'),
-                                                    style: headerStyle,
-                                                  ),
-                                                ),
-                                                Expanded(
-                                                  flex: 2,
-                                                  child: Text(
-                                                    context.l10n
-                                                        .text('colCode'),
-                                                    style: headerStyle,
-                                                  ),
-                                                ),
-                                                Expanded(
-                                                  flex: 2,
-                                                  child: Text(
-                                                    context.l10n
-                                                        .text('colPrice'),
-                                                    style: headerStyle,
-                                                  ),
-                                                ),
-                                                Expanded(
-                                                  flex: 2,
-                                                  child: Text(
-                                                    context.l10n
-                                                        .text('colStock'),
-                                                    style: headerStyle,
-                                                  ),
-                                                ),
-                                                SizedBox(
-                                                  width: 88,
-                                                  child: Text(
-                                                    context.l10n
-                                                        .text('colActions'),
-                                                    textAlign: TextAlign.end,
-                                                    style: headerStyle,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                    ),
-                                    Divider(
-                                      color: sari.cardBorder,
-                                      thickness: 1,
-                                      height: 8,
-                                    ),
-                                    Expanded(
-                                      child: filteredProducts.isEmpty
-                                          ? Center(
-                                              child: Text(
-                                                context.l10n
-                                                    .text('noProducts'),
-                                                style: GoogleFonts.outfit(
-                                                  color: sari.mutedText,
-                                                  fontSize: 14,
-                                                ),
-                                              ),
-                                            )
-                                          : ListView.separated(
-                                              physics:
-                                                  const BouncingScrollPhysics(),
-                                              itemCount:
-                                                  filteredProducts.length,
-                                              separatorBuilder: (_, __) =>
-                                                  Divider(
-                                                color: sari.cardBorder,
-                                                height: 1,
-                                                thickness: 0.5,
-                                              ),
-                                              itemBuilder: (context, index) {
-                                                return _productListRow(
-                                                  product:
-                                                      filteredProducts[index],
-                                                  narrow: narrow,
-                                                  scheme: scheme,
-                                                  sari: sari,
-                                                );
-                                              },
-                                            ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

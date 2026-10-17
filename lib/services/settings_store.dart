@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Persisted store settings (currency, tax, exchange rate, notification toggles).
@@ -19,9 +19,12 @@ class SettingsStore extends ChangeNotifier {
   static const _kLowStock = 'settings_low_stock';
   static const _kTwoFactor = 'settings_two_factor';
   static const _kLanguage = 'settings_language';
+  static const _kThemeMode = 'theme_mode';
+  static const _kThemeModeLegacy = 'settings_theme_mode';
 
   String _currencyCode = 'PHP';
   double _taxRate = 12.0;
+
   /// PHP → selected currency (e.g. 0.018 for USD). Always 1 when currency is PHP.
   double _exchangeRate = 1.0;
   bool _push = true;
@@ -29,6 +32,7 @@ class SettingsStore extends ChangeNotifier {
   bool _lowStock = true;
   bool _twoFactor = false;
   String _languageCode = 'en';
+  ThemeMode _themeMode = ThemeMode.system;
   bool _loaded = false;
 
   String get currencyCode => _currencyCode;
@@ -39,6 +43,7 @@ class SettingsStore extends ChangeNotifier {
   bool get lowStockEnabled => _lowStock;
   bool get twoFactorEnabled => _twoFactor;
   String get languageCode => _languageCode;
+  ThemeMode get themeMode => _themeMode;
   bool get isLoaded => _loaded;
 
   String get currencySymbol {
@@ -88,6 +93,29 @@ class SettingsStore extends ChangeNotifier {
     return code?.toLowerCase() == 'fil' ? 'fil' : 'en';
   }
 
+  static ThemeMode _themeModeFromString(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      case 'system':
+      default:
+        return ThemeMode.system;
+    }
+  }
+
+  static String _themeModeToString(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return 'light';
+      case ThemeMode.dark:
+        return 'dark';
+      case ThemeMode.system:
+        return 'system';
+    }
+  }
+
   /// Convert a PHP amount to the selected display currency.
   double convertFromPhp(num amountPhp) {
     final rate = _currencyCode == 'PHP' ? 1.0 : _exchangeRate;
@@ -104,13 +132,21 @@ class SettingsStore extends ChangeNotifier {
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _currencyCode = prefs.getString(_kCurrency) ?? 'PHP';
+    if (_currencyCode != 'PHP') {
+      _currencyCode = 'PHP';
+      _exchangeRate = 1.0;
+    }
     _taxRate = prefs.getDouble(_kTaxRate) ?? 12.0;
-    _exchangeRate = prefs.getDouble(_kExchangeRate) ?? defaultRateFor(_currencyCode);
+    _exchangeRate = prefs.getDouble(_kExchangeRate) ?? 1.0;
+    if (_currencyCode == 'PHP') _exchangeRate = 1.0;
     _push = prefs.getBool(_kPush) ?? true;
     _emailAlerts = prefs.getBool(_kEmail) ?? false;
     _lowStock = prefs.getBool(_kLowStock) ?? true;
     _twoFactor = prefs.getBool(_kTwoFactor) ?? false;
     _languageCode = _normalizeLanguage(prefs.getString(_kLanguage));
+    _themeMode = _themeModeFromString(
+      prefs.getString(_kThemeMode) ?? prefs.getString(_kThemeModeLegacy),
+    );
 
     // Prefer Firestore user settings when logged in.
     final user = FirebaseAuth.instance.currentUser;
@@ -132,15 +168,19 @@ class SettingsStore extends ChangeNotifier {
           _emailAlerts = settings['emailAlerts'] as bool? ?? _emailAlerts;
           _lowStock = settings['lowStock'] as bool? ?? _lowStock;
           _twoFactor = settings['twoFactor'] as bool? ?? _twoFactor;
-          _languageCode =
-              _normalizeLanguage(settings['language'] as String? ?? _languageCode);
+          _languageCode = _normalizeLanguage(
+              settings['language'] as String? ?? _languageCode);
+          _themeMode = _themeModeFromString(
+            settings['themeMode'] as String? ?? _themeModeToString(_themeMode),
+          );
         }
       } catch (e) {
         debugPrint('[SettingsStore] Firestore load failed: $e');
       }
     }
 
-    if (_currencyCode == 'PHP') _exchangeRate = 1.0;
+    _currencyCode = 'PHP';
+    _exchangeRate = 1.0;
     _loaded = true;
     notifyListeners();
   }
@@ -149,13 +189,8 @@ class SettingsStore extends ChangeNotifier {
   Future<void> reloadForCurrentUser() => load();
 
   Future<void> setCurrency(String code) async {
-    final next = code.toUpperCase();
-    _currencyCode = next;
-    if (next == 'PHP') {
-      _exchangeRate = 1.0;
-    } else if (_exchangeRate == 1.0 || _exchangeRate <= 0) {
-      _exchangeRate = defaultRateFor(next);
-    }
+    _currencyCode = 'PHP';
+    _exchangeRate = 1.0;
     notifyListeners();
     await _persist();
   }
@@ -206,6 +241,12 @@ class SettingsStore extends ChangeNotifier {
     await _persist();
   }
 
+  Future<void> setThemeMode(ThemeMode mode) async {
+    _themeMode = mode;
+    notifyListeners();
+    await _persist();
+  }
+
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kCurrency, _currencyCode);
@@ -216,6 +257,8 @@ class SettingsStore extends ChangeNotifier {
     await prefs.setBool(_kLowStock, _lowStock);
     await prefs.setBool(_kTwoFactor, _twoFactor);
     await prefs.setString(_kLanguage, _languageCode);
+    await prefs.setString(_kThemeMode, _themeModeToString(_themeMode));
+    await prefs.setString(_kThemeModeLegacy, _themeModeToString(_themeMode));
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -230,6 +273,7 @@ class SettingsStore extends ChangeNotifier {
           'lowStock': _lowStock,
           'twoFactor': _twoFactor,
           'language': _languageCode,
+          'themeMode': _themeModeToString(_themeMode),
         },
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

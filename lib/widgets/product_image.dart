@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 class ProductImage extends StatelessWidget {
   final String imageUrl;
@@ -37,7 +38,7 @@ class ProductImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (imageUrl.isEmpty) {
-      return _placeholder();
+      return _placeholder(context);
     }
 
     if (_isDataUri) {
@@ -49,10 +50,10 @@ class ProductImage extends StatelessWidget {
           width: width,
           height: height,
           fit: fit,
-          errorBuilder: (_, __, ___) => _placeholder(),
+          errorBuilder: (_, __, ___) => _placeholder(context),
         );
       } catch (_) {
-        return _placeholder();
+        return _placeholder(context);
       }
     }
 
@@ -63,7 +64,7 @@ class ProductImage extends StatelessWidget {
         width: width,
         height: height,
         fit: fit,
-        errorBuilder: (_, __, ___) => _placeholder(),
+        errorBuilder: (_, __, ___) => _placeholder(context),
       );
     }
 
@@ -72,16 +73,16 @@ class ProductImage extends StatelessWidget {
       width: width,
       height: height,
       fit: fit,
-      errorBuilder: (_, __, ___) => _placeholder(),
+      errorBuilder: (_, __, ___) => _placeholder(context),
     );
   }
 
-  Widget _placeholder() {
+  Widget _placeholder(BuildContext context) {
     return Container(
       width: width,
       height: height,
-      color: Colors.grey.shade300,
-      child: Icon(placeholderIcon, color: Colors.grey.shade600),
+      color: context.sari.imagePlaceholder,
+      child: Icon(placeholderIcon, color: context.sari.faintText),
     );
   }
 }

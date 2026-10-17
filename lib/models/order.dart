@@ -73,8 +73,7 @@ class StoreOrder {
     final itemCount = items.isNotEmpty
         ? items.fold<int>(
             0,
-            (total, item) =>
-                total + ((item['quantity'] as num?)?.toInt() ?? 0),
+            (total, item) => total + ((item['quantity'] as num?)?.toInt() ?? 0),
           )
         : (data['itemCount'] as num?)?.toInt() ?? 0;
 

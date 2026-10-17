@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 class AppLogo extends StatelessWidget {
   final double size;
@@ -7,6 +8,9 @@ class AppLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sari = context.sari;
+    final scheme = Theme.of(context).colorScheme;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * 0.26),
       child: Container(
@@ -16,7 +20,7 @@ class AppLogo extends StatelessWidget {
           borderRadius: BorderRadius.circular(size * 0.26),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
+              color: sari.shadow,
               blurRadius: 15,
               offset: const Offset(0, 6),
             ),
@@ -27,12 +31,12 @@ class AppLogo extends StatelessWidget {
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) {
             return Container(
-              color: const Color(0xFF83C785),
+              color: sari.success,
               child: Center(
                 child: Text(
                   'S',
                   style: TextStyle(
-                    color: const Color(0xFF0F2B20),
+                    color: scheme.onSurface,
                     fontSize: size * 0.38,
                     fontWeight: FontWeight.bold,
                   ),

@@ -81,7 +81,8 @@ class PushNotificationService {
       requestSoundPermission: false,
     );
     await _local.initialize(
-      settings: const InitializationSettings(android: androidInit, iOS: iosInit),
+      settings:
+          const InitializationSettings(android: androidInit, iOS: iosInit),
       onDidReceiveNotificationResponse: _onLocalTap,
     );
 
@@ -334,9 +335,8 @@ class PushNotificationService {
     final title = message.notification?.title ??
         message.data['title']?.toString() ??
         'Notification';
-    final body = message.notification?.body ??
-        message.data['body']?.toString() ??
-        '';
+    final body =
+        message.notification?.body ?? message.data['body']?.toString() ?? '';
     final type = _typeFromData(message.data);
 
     // Avoid duplicating an identical unread item already in the store.
