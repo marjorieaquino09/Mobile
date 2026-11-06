@@ -1,8 +1,11 @@
+
 import 'package:flutter/material.dart';
+
 import '../../models/notification_item.dart';
 import '../../services/cart_store.dart';
 import '../../services/push_notification_service.dart';
 import '../../widgets/app_bottom_nav.dart';
+
 import '../cart/cart_screen.dart';
 import '../credit/credit_screen.dart';
 import '../inventory/inventory_screen.dart';
@@ -10,6 +13,7 @@ import '../notifications/notifications_screen.dart';
 import '../orders/orders_screen.dart';
 import '../profile/profile_screen.dart';
 import '../scan/scan_screen.dart';
+
 import 'home_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -27,17 +31,25 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = MainShell.homeTab;
+  int _coveringRoutes = 0;
 
   @override
   void initState() {
     super.initState();
+
     CartStore.instance.onOpenCartRequested = _openCart;
+
     PushNotificationService.instance.onNotificationOpened =
         _handleNotificationOpen;
-    final pending = PushNotificationService.instance.consumePendingOpen();
+
+    final pending =
+        PushNotificationService.instance.consumePendingOpen();
+
     if (pending != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _handleNotificationOpen(pending);
+        if (mounted) {
+          _handleNotificationOpen(pending);
+        }
       });
     }
   }
@@ -45,57 +57,74 @@ class _MainShellState extends State<MainShell> {
   @override
   void dispose() {
     CartStore.instance.onOpenCartRequested = null;
-    if (PushNotificationService.instance.onNotificationOpened ==
-        _handleNotificationOpen) {
-      PushNotificationService.instance.onNotificationOpened = null;
-    }
+
+    PushNotificationService.instance.onNotificationOpened = null;
+
     super.dispose();
   }
 
-  void _openCart() {
+  Future<void> _pushRoute(Widget screen) async {
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CartScreen()),
-    );
+
+    setState(() {
+      _coveringRoutes++;
+    });
+
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => screen,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _coveringRoutes--;
+        });
+      }
+    }
+  }
+
+  void _openCart() {
+    _pushRoute(const CartScreen());
   }
 
   void _openNotif() {
-    // Notifications is already a bottom tab — switch to it instead of
-    // pushing a second NotificationsScreen on the stack.
-    setState(() => _currentIndex = MainShell.notifTab);
+    _onTabSelected(MainShell.notifTab);
   }
 
   void _onTabSelected(int index) {
-    setState(() => _currentIndex = index);
+    if (index < MainShell.homeTab ||
+        index > MainShell.profileTab) {
+      return;
+    }
+
+    if (_currentIndex == index) return;
+
+    setState(() {
+      _currentIndex = index;
+    });
   }
 
   void _handleNotificationOpen(NotificationType type) {
     if (!mounted) return;
+
     switch (type) {
       case NotificationType.lowStock:
-        setState(() => _currentIndex = MainShell.inventoryTab);
+      case NotificationType.inventory:
+        _onTabSelected(MainShell.inventoryTab);
         break;
+
       case NotificationType.payment:
       case NotificationType.orderReady:
-        setState(() => _currentIndex = MainShell.profileTab);
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const OrdersScreen()),
-        );
-        break;
-      case NotificationType.creditOverdue:
-        setState(() => _currentIndex = MainShell.profileTab);
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const CreditScreen()),
-        );
-        break;
-      case NotificationType.inventory:
-        setState(() => _currentIndex = MainShell.inventoryTab);
-        break;
       case NotificationType.transaction:
-        setState(() => _currentIndex = MainShell.profileTab);
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const OrdersScreen()),
-        );
+        _onTabSelected(MainShell.profileTab);
+        _pushRoute(const OrdersScreen());
+        break;
+
+      case NotificationType.creditOverdue:
+        _onTabSelected(MainShell.profileTab);
+        _pushRoute(const CreditScreen());
         break;
     }
   }
@@ -103,7 +132,7 @@ class _MainShellState extends State<MainShell> {
   void _onNotifRelated(NotificationType type) {
     if (type == NotificationType.lowStock ||
         type == NotificationType.inventory) {
-      setState(() => _currentIndex = MainShell.inventoryTab);
+      _onTabSelected(MainShell.inventoryTab);
     } else {
       _handleNotificationOpen(type);
     }
@@ -111,28 +140,53 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [
-          HomeScreen(
-            onOpenCart: _openCart,
-            onOpenNotif: _openNotif,
-            onOpenProfile: () => _onTabSelected(MainShell.profileTab),
-          ),
-          const InventoryScreen(),
-          ScanScreen(
-            onOpenCart: _openCart,
-            isActive: _currentIndex == MainShell.scanTab,
-          ),
-          NotificationsScreen(onOpenRelated: _onNotifRelated),
-          const ProfileScreen(),
-        ],
-      ),
-      bottomNavigationBar: AppBottomNav(
-        currentIndex: _currentIndex,
-        onTap: _onTabSelected,
+    return PopScope(
+      canPop: _currentIndex == MainShell.homeTab,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && mounted) {
+          _onTabSelected(MainShell.homeTab);
+        }
+      },
+      child: Scaffold(
+        extendBody: true,
+
+        body: IndexedStack(
+          index: _currentIndex,
+          children: [
+            // HOME
+            HomeScreen(
+              onOpenCart: _openCart,
+              onOpenNotif: _openNotif,
+              onOpenProfile: () {
+                _onTabSelected(MainShell.profileTab);
+              },
+            ),
+
+            // INVENTORY
+            const InventoryScreen(),
+
+            // SCAN
+            ScanScreen(
+              onOpenCart: _openCart,
+              isActive: _currentIndex == MainShell.scanTab &&
+                  _coveringRoutes == 0,
+            ),
+
+            // NOTIFICATIONS
+            NotificationsScreen(
+              onOpenRelated: _onNotifRelated,
+            ),
+
+            // PROFILE
+            const ProfileScreen(),
+          ],
+        ),
+
+        // BOTTOM NAVIGATION
+        bottomNavigationBar: AppBottomNav(
+          currentIndex: _currentIndex,
+          onTap: _onTabSelected,
+        ),
       ),
     );
   }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_snackbar.dart';
@@ -25,10 +24,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  DateTime? _birthDate;
   bool _isLoading = false;
-
-  static final DateFormat _storageFormat = DateFormat('yyyy-MM-dd');
 
   @override
   void dispose() {
@@ -39,37 +35,6 @@ class _SignupScreenState extends State<SignupScreen> {
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
-  }
-
-  Future<void> _pickBirthDate() async {
-    final now = DateTime.now();
-    final latest = DateTime(now.year - 13, now.month, now.day);
-    final earliest = DateTime(now.year - 100, now.month, now.day);
-    final initial = _birthDate ?? DateTime(now.year - 18, now.month, now.day);
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial.isBefore(earliest)
-          ? earliest
-          : (initial.isAfter(latest) ? latest : initial),
-      firstDate: earliest,
-      lastDate: latest,
-      helpText: context.l10n.text('selectBirthday'),
-      cancelText: context.l10n.text('cancel'),
-      confirmText: context.l10n.text('save'),
-    );
-
-    if (picked != null) {
-      setState(() => _birthDate = picked);
-    }
-  }
-
-  bool _isValidBirthDate(DateTime date) {
-    final now = DateTime.now();
-    final thirteenYearsAgo = DateTime(now.year - 13, now.month, now.day);
-    final hundredYearsAgo = DateTime(now.year - 100, now.month, now.day);
-
-    return !date.isAfter(thirteenYearsAgo) && !date.isBefore(hundredYearsAgo);
   }
 
   Future<void> _signUp() async {
@@ -85,14 +50,8 @@ class _SignupScreenState extends State<SignupScreen> {
         lastName.isEmpty ||
         storeName.isEmpty ||
         email.isEmpty ||
-        password.isEmpty ||
-        _birthDate == null) {
+        password.isEmpty) {
       AppSnackbar.showError(context, l10n.text('signupAllFields'));
-      return;
-    }
-
-    if (!_isValidBirthDate(_birthDate!)) {
-      AppSnackbar.showError(context, l10n.text('signupValidBirthday'));
       return;
     }
 
@@ -116,7 +75,6 @@ class _SignupScreenState extends State<SignupScreen> {
       );
 
       final String uid = userCredential.user!.uid;
-      final dobIso = _storageFormat.format(_birthDate!);
 
       await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'uid': uid,
@@ -124,7 +82,6 @@ class _SignupScreenState extends State<SignupScreen> {
         'lastName': lastName,
         'storeName': storeName,
         'email': email,
-        'dateOfBirth': dobIso,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -154,7 +111,6 @@ class _SignupScreenState extends State<SignupScreen> {
     final scheme = theme.colorScheme;
     final sari = context.sari;
     final l10n = context.l10n;
-    final hasDate = _birthDate != null;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -179,6 +135,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // Logo & Brand Name
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -219,7 +176,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
                             color: scheme.onSurface,
-                            fontSize: 29,
+                            fontSize: 28,
                             fontWeight: FontWeight.w700,
                             height: 1.12,
                             letterSpacing: -0.5,
@@ -231,13 +188,15 @@ class _SignupScreenState extends State<SignupScreen> {
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
                             color: sari.mutedText,
-                            fontSize: 15,
+                            fontSize: 14,
                             height: 1.4,
                           ),
                         ),
                         const SizedBox(height: 22),
+
+                        // Form Card
                         Container(
-                          padding: const EdgeInsets.all(18),
+                          padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             color: sari.authCardSurface,
                             borderRadius: BorderRadius.circular(24),
@@ -253,23 +212,36 @@ class _SignupScreenState extends State<SignupScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              // Personal Details Section
                               _SignupFieldLabel(
                                 label: 'PERSONAL DETAILS',
                                 color: sari.mutedText,
                               ),
                               const SizedBox(height: 10),
-                              AppTextField(
-                                controller: _firstNameController,
-                                hintText: l10n.text('firstName'),
-                                prefixIcon: Icons.badge_outlined,
+                              
+                              // First & Last Name Side-by-Side (2 Columns)
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: AppTextField(
+                                      controller: _firstNameController,
+                                      hintText: l10n.text('firstName'),
+                                      prefixIcon: Icons.badge_outlined,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: AppTextField(
+                                      controller: _lastNameController,
+                                      hintText: l10n.text('lastName'),
+                                      prefixIcon: Icons.badge_outlined,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 12),
-                              AppTextField(
-                                controller: _lastNameController,
-                                hintText: l10n.text('lastName'),
-                                prefixIcon: Icons.badge_outlined,
-                              ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 18),
+
+                              // Store Details Section
                               _SignupFieldLabel(
                                 label: 'STORE DETAILS',
                                 color: sari.mutedText,
@@ -301,63 +273,8 @@ class _SignupScreenState extends State<SignupScreen> {
                                 prefixIcon: Icons.lock_outline_rounded,
                                 obscureText: true,
                               ),
-                              const SizedBox(height: 12),
-                              Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: _isLoading ? null : _pickBirthDate,
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Ink(
-                                    height: 54,
-                                    decoration: BoxDecoration(
-                                      color: sari.fieldFill,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: sari.authBorder,
-                                      ),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.calendar_month_rounded,
-                                            color: scheme.primary,
-                                            size: 20,
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Text(
-                                              hasDate
-                                                  ? DateFormat(
-                                                      'MMM d, yyyy',
-                                                      Localizations.localeOf(
-                                                        context,
-                                                      ).languageCode,
-                                                    ).format(_birthDate!)
-                                                  : l10n.text('selectBirthday'),
-                                              style: GoogleFonts.outfit(
-                                                color: hasDate
-                                                    ? scheme.onSurface
-                                                    : sari.faintText,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ),
-                                          Icon(
-                                            Icons.keyboard_arrow_down_rounded,
-                                            color: sari.mutedText,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
                               const SizedBox(height: 20),
+
                               PrimaryButton(
                                 label: 'Create Account',
                                 isLoading: _isLoading,
@@ -367,6 +284,8 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                         ),
                         const SizedBox(height: 18),
+
+                        // Login Link Footer
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [

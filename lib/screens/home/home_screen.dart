@@ -13,7 +13,6 @@ import '../../l10n/app_localizations.dart';
 import '../../models/product.dart';
 import '../../services/cart_store.dart';
 import '../../services/product_repository.dart';
-import '../../services/notification_store.dart';
 import '../../services/settings_store.dart';
 import '../../services/user_profile_store.dart';
 import '../../widgets/product_image.dart';
@@ -56,21 +55,81 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<String> _categoriesFor(Iterable<Product> products) {
-    final categories = products
-        .map((product) => product.category.trim())
-        .where((category) => category.isNotEmpty)
-        .toSet()
-        .toList()
+    final categories = <String, String>{};
+
+    for (final product in products) {
+      final category = product.category.trim();
+      if (category.isEmpty) continue;
+
+      final normalized = category
+          .toLowerCase()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+
+      if (normalized == 'id') continue;
+
+      if (normalized == 'beverage' || normalized == 'beverages') {
+        categories['beverages'] = 'Beverages';
+      } else if (normalized.startsWith('cann')) {
+        categories['canned goods'] = 'Canned Goods';
+      } else {
+        categories.putIfAbsent(normalized, () => category);
+      }
+    }
+
+    final result = categories.values.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return ['All', ...categories];
+
+    return ['All', ...result];
+  }
+
+  List<Product> _dedupe(List<Product> products) {
+    final unique = <String, Product>{};
+
+    for (final p in products) {
+      final name = p.name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+      final size = p.size.toString().toLowerCase().trim();
+      final key = '$name|$size';
+
+      final existing = unique[key];
+      if (existing == null) {
+        unique[key] = p;
+        continue;
+      }
+
+      final keepNew = (existing.isCatalogOnly && !p.isCatalogOnly) ||
+          (existing.isCatalogOnly == p.isCatalogOnly &&
+              p.stock > existing.stock);
+      if (keepNew) unique[key] = p;
+    }
+
+    return unique.values.toList();
   }
 
   bool _categoryMatches(String productCat, String selectedCat) {
-    if (selectedCat == 'All') return true;
-    final p = productCat.toLowerCase().trim();
-    final s = selectedCat.toLowerCase().trim();
+    final p = productCat
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    final s = selectedCat
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    if (s == 'all') return true;
     if (p == s) return true;
+
+    if ((p == 'beverage' || p == 'beverages') && s == 'beverages') {
+      return true;
+    }
+
+    if (s == 'canned goods' && p.startsWith('cann')) {
+      return true;
+    }
+
     if (p.startsWith(s) || s.startsWith(p)) return true;
+
     if (s == 'snacks' &&
         (p.contains('snack') ||
             p.contains('chip') ||
@@ -78,9 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
             p.contains('cracker'))) {
       return true;
     }
-    if (s == 'canned goods' && p.contains('cann')) {
-      return true;
-    }
+
     if (s == 'beverages' &&
         (p.contains('beverag') ||
             p.contains('drink') ||
@@ -89,6 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
             p.contains('alcohol'))) {
       return true;
     }
+
     return false;
   }
 
@@ -101,6 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _goToCart() {
     final openCart = widget.onOpenCart;
+
     if (openCart != null) {
       openCart();
     } else {
@@ -118,11 +177,14 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       return;
     }
+
     setState(() {
       _lastAddedProductName = product.name;
       _showCartPopup = true;
     });
+
     _cartPopupTimer?.cancel();
+
     _cartPopupTimer = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
       setState(() => _showCartPopup = false);
@@ -175,7 +237,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: sari.danger,
                 shape: BoxShape.circle,
               ),
-              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              constraints: const BoxConstraints(
+                minWidth: 18,
+                minHeight: 18,
+              ),
               child: Text(
                 badgeCount > 9 ? '9+' : '$badgeCount',
                 textAlign: TextAlign.center,
@@ -223,7 +288,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 10),
-                      // Header: Avatar, Welcome info, Cart & Bell in soft circles
+                      
+                      // Header Profile Bar
                       Row(
                         children: [
                           Expanded(
@@ -233,8 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 onTap: widget.onOpenProfile,
                                 borderRadius: BorderRadius.circular(28),
                                 child: Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 4),
+                                  padding: const EdgeInsets.symmetric(vertical: 4),
                                   child: Row(
                                     children: [
                                       CircleAvatar(
@@ -251,8 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                               )
                                             : Text(
                                                 displayName.isNotEmpty
-                                                    ? displayName[0]
-                                                        .toUpperCase()
+                                                    ? displayName[0].toUpperCase()
                                                     : 'U',
                                                 style: GoogleFonts.outfit(
                                                   color: scheme.onSurface,
@@ -264,8 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
                                             Text(
                                               context.l10n.text('welcomeBack'),
@@ -299,52 +362,43 @@ class _HomeScreenState extends State<HomeScreen> {
                             onTap: _goToCart,
                             badgeCount: cartItemCount,
                           ),
-                          const SizedBox(width: 10),
-                          ListenableBuilder(
-                            listenable: NotificationStore.instance,
-                            builder: (context, _) {
-                              return _iconCircle(
-                                icon: Icons.notifications_none_rounded,
-                                onTap: widget.onOpenNotif,
-                                badgeCount:
-                                    NotificationStore.instance.unreadCount,
-                              );
-                            },
-                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // Pill search bar
+                      
+                      // Search Bar
                       AppSearchBar(
                         controller: _searchController,
                         hintText: context.l10n.text('searchByNameOrBarcode'),
                         onChanged: (_) => setState(() {}),
                       ),
                       const SizedBox(height: 14),
-                      // Horizontal Pill category chips
+
+                      // Category Horizontal Chips
                       StreamBuilder<List<Product>>(
                         stream: productStream,
                         builder: (context, snapshot) {
                           final categories = _categoriesFor(
                             snapshot.data ?? const <Product>[],
                           );
+
                           final selectedCategory =
                               categories.contains(_selectedCategory)
                                   ? _selectedCategory
                                   : 'All';
+
                           return SizedBox(
                             height: 38,
                             child: ListView.separated(
                               scrollDirection: Axis.horizontal,
                               itemCount: categories.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(width: 8),
+                              separatorBuilder: (_, __) => const SizedBox(width: 8),
                               itemBuilder: (context, index) {
                                 final category = categories[index];
-                                final isSelected = category == selectedCategory;
+
                                 return CategoryChip(
                                   label: context.l10n.category(category),
-                                  selected: isSelected,
+                                  selected: category == selectedCategory,
                                   onSelected: (_) => setState(
                                     () => _selectedCategory = category,
                                   ),
@@ -355,7 +409,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      // Section Header: "Products" with "See All"
+
+                      // Products Section Header
                       SectionHeader(
                         title: context.l10n.text('products'),
                         actionLabel: context.l10n.text('seeAll'),
@@ -367,7 +422,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
                       const SizedBox(height: 12),
-                      // 2-column ProductCard grid
+
+                      // Product Grid View
                       Expanded(
                         child: StreamBuilder<List<Product>>(
                           stream: productStream,
@@ -386,36 +442,31 @@ class _HomeScreenState extends State<HomeScreen> {
                               return const LoadingIndicator();
                             }
 
-                            final allProducts = snapshot.data!;
-                            final categories = _categoriesFor(allProducts);
-                            final selectedCategory =
-                                categories.contains(_selectedCategory)
-                                    ? _selectedCategory
-                                    : 'All';
-                            final q =
-                                _searchController.text.toLowerCase().trim();
+                            final allProducts = _dedupe(snapshot.data!);
+                            final q = _searchController.text.toLowerCase().trim();
                             final qCompact = q.replaceAll(RegExp(r'\s+'), '');
 
-                            final filteredProducts =
-                                allProducts.where((product) {
-                              final barcode =
-                                  product.barcode.toLowerCase().trim();
+                            final filteredProducts = allProducts.where((product) {
+                              final barcode = product.barcode.toLowerCase().trim();
                               final id = product.id.toLowerCase().trim();
                               final barcodeCompact =
                                   barcode.replaceAll(RegExp(r'\s+'), '');
+
                               final matchesSearch = q.isEmpty ||
                                   product.name.toLowerCase().contains(q) ||
                                   barcode.contains(q) ||
                                   barcodeCompact.contains(qCompact) ||
-                                  barcodeCompact == qCompact ||
                                   id.contains(q) ||
-                                  id.replaceAll(RegExp(r'\s+'), '') ==
-                                      qCompact ||
+                                  id.replaceAll(RegExp(r'\s+'), '') == qCompact ||
                                   product.category.toLowerCase().contains(q);
+
                               final matchesCategory = q.isNotEmpty ||
-                                  selectedCategory == 'All' ||
+                                  _selectedCategory == 'All' ||
                                   _categoryMatches(
-                                      product.category, selectedCategory);
+                                    product.category,
+                                    _selectedCategory,
+                                  );
+
                               return matchesSearch && matchesCategory;
                             }).toList();
 
@@ -428,13 +479,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                   final id = p.id
                                       .toLowerCase()
                                       .replaceAll(RegExp(r'\s+'), '');
+
                                   if (code == qCompact || id == qCompact) {
                                     return 0;
                                   }
+
                                   if (code.startsWith(qCompact) ||
                                       id.startsWith(qCompact)) {
                                     return 1;
                                   }
+
                                   return 2;
                                 }
 
@@ -465,7 +519,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               padding: EdgeInsets.only(
                                 bottom: _showCartPopup && cartItemCount > 0
                                     ? 220
-                                    : 100,
+                                    : 110,
                               ),
                               itemCount: filteredProducts.length,
                               gridDelegate:
@@ -473,10 +527,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 crossAxisCount: 2,
                                 mainAxisSpacing: 14,
                                 crossAxisSpacing: 14,
-                                childAspectRatio: 0.68,
+                                childAspectRatio: 0.66,
                               ),
                               itemBuilder: (context, index) {
                                 final product = filteredProducts[index];
+
                                 return ProductCard(
                                   product: product,
                                   onAddToCart: () => _addToCart(product),
@@ -489,7 +544,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
-                // "Added to cart" popup card
+
+                // Floating "Added to Cart" Toast Popup
                 if (_showCartPopup && cartItemCount > 0)
                   Positioned(
                     left: 20,
@@ -577,7 +633,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       backgroundColor: sari.accentAmber,
                                       foregroundColor: sari.onAccentAmber,
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 16),
+                                        horizontal: 16,
+                                      ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(24),
                                       ),

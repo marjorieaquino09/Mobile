@@ -378,7 +378,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         decoration: BoxDecoration(gradient: sari.screenGradient),
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -403,7 +403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(width: 48),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Expanded(
                   child: ListenableBuilder(
                     listenable: _settings,
@@ -416,21 +416,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _tileCard(
                             children: [
                               _navRow(
-                                l10n.text('language'),
-                                l10n.text('languageSubtitle'),
-                                _pickLanguage,
+                                icon: Icons.language_rounded,
+                                title: l10n.text('language'),
+                                subtitle: l10n.text('languageSubtitle'),
+                                onTap: _pickLanguage,
                                 value:
                                     l10n.languageName(_settings.languageCode),
                               ),
-                              Divider(
-                                color: sari.divider,
-                                thickness: 1,
-                                height: 24,
-                              ),
+                              _divider(),
                               _navRow(
-                                l10n.text('appearance'),
-                                l10n.text('appearanceSubtitle'),
-                                _pickThemeMode,
+                                icon: Icons.palette_outlined,
+                                title: l10n.text('appearance'),
+                                subtitle: l10n.text('appearanceSubtitle'),
+                                onTap: _pickThemeMode,
                                 value: l10n.themeModeName(
                                   switch (_settings.themeMode) {
                                     ThemeMode.light => 'light',
@@ -445,33 +443,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _tileCard(
                             children: [
                               _navRow(
-                                l10n.text('changePassword'),
-                                l10n.text('changePasswordSubtitle'),
-                                _showChangePassword,
-                              ),
-                              Divider(
-                                color: sari.success.withValues(alpha: 0.15),
-                                thickness: 1,
-                                height: 24,
-                              ),
-                              _switchRow(
-                                l10n.text('twoFactorAuth'),
-                                l10n.text('twoFactorSubtitle'),
-                                _settings.twoFactorEnabled,
-                                (v) async {
-                                  await _settings.setTwoFactor(v);
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(this.context)
-                                      .showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        v
-                                            ? l10n.text('twoFactorEnabled')
-                                            : l10n.text('twoFactorDisabled'),
-                                      ),
-                                    ),
-                                  );
-                                },
+                                icon: Icons.lock_outline_rounded,
+                                title: l10n.text('changePassword'),
+                                subtitle: l10n.text('changePasswordSubtitle'),
+                                onTap: _showChangePassword,
                               ),
                             ],
                           ),
@@ -479,24 +454,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _tileCard(
                             children: [
                               _valueRow(
-                                l10n.text('currency'),
-                                l10n.text('currencySubtitle'),
-                                '₱ PHP',
+                                icon: Icons.payments_outlined,
+                                title: l10n.text('currency'),
+                                subtitle: l10n.text('currencySubtitle'),
+                                value: '₱ PHP',
                                 showEdit: false,
                               ),
-                              Divider(
-                                color: sari.success.withValues(alpha: 0.15),
-                                thickness: 1,
-                                height: 24,
-                              ),
-                              InkWell(
+                              _divider(),
+                              _valueRow(
+                                icon: Icons.percent_rounded,
+                                title: l10n.text('taxRate'),
+                                subtitle: l10n.text('taxRateSubtitle'),
+                                value:
+                                    '${_settings.taxRate.toStringAsFixed(0)}%',
                                 onTap: _editTaxRate,
-                                borderRadius: BorderRadius.circular(8),
-                                child: _valueRow(
-                                  l10n.text('taxRate'),
-                                  l10n.text('taxRateSubtitle'),
-                                  '${_settings.taxRate.toStringAsFixed(0)}%',
-                                ),
                               ),
                             ],
                           ),
@@ -504,41 +475,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _tileCard(
                             children: [
                               _switchRow(
-                                l10n.text('pushNotifications'),
-                                _pushBusy
+                                icon: Icons.notifications_active_outlined,
+                                title: l10n.text('pushNotifications'),
+                                subtitle: _pushBusy
                                     ? l10n.text('updating')
                                     : l10n.text('pushSubtitle'),
-                                _settings.pushEnabled,
-                                _pushBusy ? null : _onPushChanged,
+                                value: _settings.pushEnabled,
+                                onChanged: _pushBusy ? null : _onPushChanged,
                               ),
-                              Divider(
-                                color: sari.success.withValues(alpha: 0.15),
-                                thickness: 1,
-                                height: 24,
-                              ),
+                              _divider(),
                               _switchRow(
-                                l10n.text('emailAlerts'),
-                                l10n.text('emailAlertsSubtitle'),
-                                _settings.emailAlertsEnabled,
-                                (v) => _settings.setEmailAlerts(v),
-                              ),
-                              Divider(
-                                color: sari.success.withValues(alpha: 0.15),
-                                thickness: 1,
-                                height: 24,
-                              ),
-                              _switchRow(
-                                l10n.text('lowStockAlerts'),
-                                l10n.text('lowStockSubtitle'),
-                                _settings.lowStockEnabled,
-                                (v) => _settings.setLowStock(v),
+                                icon: Icons.inventory_2_outlined,
+                                title: l10n.text('lowStockAlerts'),
+                                subtitle: l10n.text('lowStockSubtitle'),
+                                value: _settings.lowStockEnabled,
+                                onChanged: (v) => _settings.setLowStock(v),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 22),
                           SizedBox(
                             width: double.infinity,
-                            height: 50,
+                            height: 48,
                             child: TextButton.icon(
                               onPressed: _logout,
                               icon: Icon(
@@ -795,174 +753,176 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // ── Layout helpers ──────────────────────────────────────────────────────
+
   Widget _sectionLabel(String text) => Padding(
-        padding: const EdgeInsets.only(top: 18, bottom: 8),
+        padding: const EdgeInsets.only(left: 4, top: 16, bottom: 8),
         child: Text(
-          text,
+          text.toUpperCase(),
           style: TextStyle(
             color: sari.faintText,
             fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.6,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
           ),
         ),
       );
 
   Widget _tileCard({required List<Widget> children}) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: sari.cardSurfaceStrong.withValues(alpha: 0.90),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: sari.glassBorder,
             width: 1,
           ),
         ),
-        child: Column(children: children),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Material(
+            color: Colors.transparent,
+            child: Column(children: children),
+          ),
+        ),
       );
 
-  // FIX: added optional `value` named parameter so this can show the
-  // currently-selected language (or any other value) next to the chevron.
-  Widget _navRow(
-    String title,
-    String subtitle,
-    VoidCallback onTap, {
+  Widget _divider() => Divider(
+        color: sari.glassBorder.withValues(alpha: 0.6),
+        thickness: 1,
+        height: 1,
+        indent: 58,
+      );
+
+  Widget _leadingIcon(IconData icon) => Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: sari.success.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: sari.success, size: 18),
+      );
+
+  Widget _titleBlock(String title, String subtitle) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: sari.mutedText,
+              fontSize: 11.5,
+              height: 1.25,
+            ),
+          ),
+        ],
+      );
+
+  static const EdgeInsets _rowPadding =
+      EdgeInsets.symmetric(horizontal: 14, vertical: 11);
+
+  Widget _navRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
     String? value,
   }) =>
       InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: _rowPadding,
           child: Row(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: sari.mutedText,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _leadingIcon(icon),
+              const SizedBox(width: 12),
+              Expanded(child: _titleBlock(title, subtitle)),
               if (value != null) ...[
+                const SizedBox(width: 8),
                 Text(
                   value,
                   style: TextStyle(
                     color: sari.warning,
                     fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    fontSize: 13.5,
                   ),
                 ),
-                const SizedBox(width: 6),
               ],
-              Icon(Icons.chevron_right_rounded, color: sari.warning, size: 22),
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded, color: sari.warning, size: 20),
             ],
           ),
         ),
       );
 
-  Widget _valueRow(
-    String title,
-    String subtitle,
-    String value, {
+  Widget _valueRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String value,
+    VoidCallback? onTap,
     bool showEdit = true,
   }) =>
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: scheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: sari.mutedText,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+      InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: _rowPadding,
+          child: Row(
+            children: [
+              _leadingIcon(icon),
+              const SizedBox(width: 12),
+              Expanded(child: _titleBlock(title, subtitle)),
+              const SizedBox(width: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  color: sari.warning,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13.5,
+                ),
               ),
-            ),
-            Text(
-              value,
-              style: TextStyle(
-                color: sari.warning,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            if (showEdit) ...[
-              const SizedBox(width: 4),
-              Icon(Icons.edit_outlined, size: 16, color: sari.faintText),
+              if (showEdit) ...[
+                const SizedBox(width: 6),
+                Icon(Icons.edit_outlined, size: 16, color: sari.faintText),
+              ],
             ],
-          ],
+          ),
         ),
       );
 
-  Widget _switchRow(
-    String title,
-    String subtitle,
-    bool value,
-    ValueChanged<bool>? onChanged,
-  ) =>
+  Widget _switchRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool>? onChanged,
+  }) =>
       Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
+        padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
         child: Row(
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: scheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: sari.mutedText,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+            _leadingIcon(icon),
+            const SizedBox(width: 12),
+            Expanded(child: _titleBlock(title, subtitle)),
+            Transform.scale(
+              scale: 0.85,
+              child: Switch(
+                value: value,
+                onChanged: onChanged,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                activeThumbColor: sari.warning,
+                activeTrackColor: sari.warning.withValues(alpha: 0.35),
               ),
-            ),
-            Switch(
-              value: value,
-              onChanged: onChanged,
-              activeThumbColor: sari.warning,
-              activeTrackColor: sari.warning.withValues(alpha: 0.35),
             ),
           ],
         ),

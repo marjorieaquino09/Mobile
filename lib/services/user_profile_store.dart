@@ -81,13 +81,19 @@ class UserProfileStore extends ChangeNotifier {
       }
 
       final data = doc.data()!;
-      final fullName = [
-        (data['firstName'] ?? '').toString().trim(),
-        (data['lastName'] ?? '').toString().trim(),
-      ].where((part) => part.isNotEmpty).join(' ');
+      
+      // Binabasa na ang web fields ('full_name', 'store_name', 'profile_image')
+      final rawFullName = (data['full_name'] ?? '').toString().trim();
+      final firstName = (data['firstName'] ?? '').toString().trim();
+      final lastName = (data['lastName'] ?? '').toString().trim();
+      
+      final fullName = rawFullName.isNotEmpty 
+          ? rawFullName 
+          : [firstName, lastName].where((part) => part.isNotEmpty).join(' ');
+
       final username = (data['username'] ?? '').toString().trim();
-      final store = (data['storeName'] ?? '').toString().trim();
-      final photo = (data['photoUrl'] ?? '').toString().trim();
+      final store = (data['store_name'] ?? data['storeName'] ?? '').toString().trim();
+      final photo = (data['profile_image'] ?? data['photoUrl'] ?? '').toString().trim();
 
       _displayName = fullName.isNotEmpty
           ? fullName

@@ -6,8 +6,6 @@ import 'package:flutter/foundation.dart';
 
 import '../models/product.dart';
 
-/// Per-user inventory at `users/{uid}/inventory/{productId}`.
-/// Shared read-only catalog at `products/{productId}`.
 class ProductRepository {
   ProductRepository({FirebaseFirestore? firestore})
       : _db = firestore ?? FirebaseFirestore.instance;
@@ -40,7 +38,6 @@ class ProductRepository {
     }
   }
 
-  /// Deterministic inventory document id (catalog id preferred, else barcode).
   static String inventoryDocId({
     required String barcode,
     String? catalogProductId,
@@ -139,12 +136,6 @@ class ProductRepository {
     return products;
   }
 
-  /// Merge catalog + user inventory.
-  ///
-  /// - Catalog only → show catalog values (`isCatalogOnly: true`)
-  /// - Same id/barcode in both → user fields override
-  /// - User only → custom product
-  /// - User `hidden: true` → omit (soft-deleted catalog item)
   static List<Product> mergeCatalogAndInventory({
     required List<Product> catalog,
     required List<Product> inventory,
@@ -195,7 +186,6 @@ class ProductRepository {
         if (user.hidden) continue;
         merged.add(Product.mergeCatalogWithUser(cat, user));
       } else {
-        // Catalog is a shared template — stock is per-user inventory only.
         merged.add(cat.copyWith(
           isCatalogOnly: true,
           catalogProductId: cat.id,
@@ -236,7 +226,6 @@ class ProductRepository {
         .trim();
   }
 
-  /// Barcode is strongest identity; otherwise use normalized name and size.
   static String productKey(Product product) {
     final barcode = product.barcode.trim().toLowerCase();
     if (barcode.isNotEmpty) return 'barcode:$barcode';
@@ -384,7 +373,6 @@ class ProductRepository {
   List<Product>? _lastSharedProducts;
   String? _sharedWatchUid;
 
-  /// Bumps when the shared watch is (re)created so Home/Inventory rebuild.
   final ValueNotifier<int> productsWatchGeneration = ValueNotifier<int>(0);
 
   void _emitSharedProducts() {
@@ -399,8 +387,6 @@ class ProductRepository {
     controller.add(merged);
   }
 
-  /// Must stay synchronous: an async tear-down races with the new controller
-  /// assignment in [watchProducts] and closes the stream before any UI listens.
   void _tearDownSharedProductsWatch() {
     final catalogSub = _sharedCatalogSub;
     final inventorySub = _sharedInventorySub;
@@ -422,14 +408,13 @@ class ProductRepository {
     }
   }
 
-  /// Force a fresh shared watch (used by Retry).
+  void stopWatching() => _tearDownSharedProductsWatch();
+
   Stream<List<Product>> refreshProducts() {
     _tearDownSharedProductsWatch();
     return watchProducts();
   }
 
-  /// Real-time merged catalog + user inventory (single shared stream).
-  /// Home + Inventory can both listen without duplicating Firestore reads.
   Stream<List<Product>> watchProducts() {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (_sharedProductsController != null &&
@@ -438,25 +423,14 @@ class ProductRepository {
       return _sharedProductsController!.stream;
     }
 
-    // User changed (or first watch) — restart shared listeners.
     _tearDownSharedProductsWatch();
 
-    // Use late so onListen/onCancel can safely reference the same instance
-    // (cannot read a local final inside its own initializer).
     late final StreamController<List<Product>> controller;
     controller = StreamController<List<Product>>.broadcast(
       onListen: () {
         final cached = _lastSharedProducts;
         if (cached != null && !controller.isClosed) {
           controller.add(cached);
-        }
-      },
-      onCancel: () {
-        // Only tear down if this controller is still the active shared one.
-        // Otherwise a Retry/refresh would let a stale onCancel kill the new watch.
-        if (!controller.hasListener &&
-            identical(_sharedProductsController, controller)) {
-          _tearDownSharedProductsWatch();
         }
       },
     );
@@ -488,7 +462,6 @@ class ProductRepository {
     return controller.stream;
   }
 
-  /// Read-only catalog lookup by barcode (not user inventory).
   Future<Product?> getCatalogProductByBarcode(String barcode) async {
     final code = barcode.trim();
     if (code.isEmpty) return null;
@@ -525,7 +498,6 @@ class ProductRepository {
     }
   }
 
-  /// Categories from the merged product list.
   Future<List<String>> fetchCategorySuggestions() async {
     final names = <String>{};
     try {
@@ -558,7 +530,6 @@ class ProductRepository {
     return list;
   }
 
-  /// Lookup in user inventory first, then catalog (merged view for scan/cart).
   Future<Product?> getProductByBarcode(String barcode) async {
     final code = barcode.trim();
     if (code.isEmpty) return null;
@@ -655,8 +626,6 @@ class ProductRepository {
     });
   }
 
-  /// Copy-on-write: first edit of a catalog product writes the full product
-  /// into the user's inventory. Never touches the catalog.
   Future<void> updateProduct(
     String oldBarcode,
     Product updated, {
@@ -708,8 +677,6 @@ class ProductRepository {
     _log('updateProduct ${updated.barcode} (copy-on-write OK)');
   }
 
-  /// Custom product → delete user doc.
-  /// Catalog product → set `hidden: true` on user inventory (copy-on-write).
   Future<void> deleteProduct(Product product) async {
     final inv = _userInventory();
     if (inv == null) {
@@ -790,7 +757,6 @@ class ProductRepository {
       catalogProductId: catalogSeed?.id,
     );
 
-    // Prefetch catalog outside the transaction (copy-on-write seed).
     final existing = await inv.doc(docId).get();
     if (!existing.exists && catalogSeed == null) {
       throw StateError('Product $code not found — cannot add stock');
@@ -898,7 +864,6 @@ class ProductRepository {
     });
   }
 
-  /// Copy a catalog product into the user's inventory (does not modify catalog).
   Future<Product> copyCatalogToInventory({
     required Product catalogProduct,
     required double price,

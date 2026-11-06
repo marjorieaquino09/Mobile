@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -7,7 +8,7 @@ class PrimaryButton extends StatelessWidget {
     required this.label,
     this.onPressed,
     this.icon,
-    this.height = 54,
+    this.height = 58,
     this.isLoading = false,
   });
 
@@ -19,8 +20,7 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final scheme = Theme.of(context).colorScheme;
 
     return SizedBox(
       width: double.infinity,
@@ -30,9 +30,12 @@ class PrimaryButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: scheme.primary,
           foregroundColor: scheme.onPrimary,
+          disabledBackgroundColor: scheme.primary.withValues(
+            alpha: 0.7,
+          ),
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(32),
           ),
           textStyle: GoogleFonts.outfit(
             fontSize: 16,
@@ -41,19 +44,23 @@ class PrimaryButton extends StatelessWidget {
         ),
         child: isLoading
             ? SizedBox(
-                width: 24,
-                height: 24,
+                width: 23,
+                height: 23,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
                   color: scheme.onPrimary,
                 ),
               )
             : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (icon != null) ...[
-                    Icon(icon, size: 20, color: scheme.onPrimary),
+                    Icon(
+                      icon,
+                      size: 20,
+                      color: scheme.onPrimary,
+                    ),
                     const SizedBox(width: 8),
                   ],
                   Text(label),

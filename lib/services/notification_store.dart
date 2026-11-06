@@ -11,7 +11,6 @@ import '../models/notification_item.dart';
 import 'push_notification_service.dart';
 import 'settings_store.dart';
 
-/// In-app notifications stored at `users/{uid}/notifications/{id}`.
 class NotificationStore extends ChangeNotifier {
   NotificationStore._();
   static final NotificationStore instance = NotificationStore._();
@@ -20,7 +19,8 @@ class NotificationStore extends ChangeNotifier {
 
   final List<NotificationItem> _items = [];
   bool _loaded = false;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _firestoreSub;
+  StreamSubscription<QuerySnapshot>? _firestoreSub;
+  String? _listeningUid;
 
   List<NotificationItem> get items => List.unmodifiable(_items);
   bool get isLoaded => _loaded;
@@ -45,8 +45,18 @@ class NotificationStore extends ChangeNotifier {
   }
 
   Future<void> reloadForCurrentUser() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final currentUid = (uid == null || uid.isEmpty) ? null : uid;
+
+    if (currentUid != null &&
+        _firestoreSub != null &&
+        _listeningUid == currentUid) {
+      return;
+    }
+
     await _firestoreSub?.cancel();
     _firestoreSub = null;
+    _listeningUid = null;
     _items.clear();
     _loaded = false;
     notifyListeners();
@@ -59,6 +69,7 @@ class NotificationStore extends ChangeNotifier {
       return;
     }
 
+    _listeningUid = currentUid;
     _firestoreSub = ref
         .orderBy('createdAt', descending: true)
         .limit(100)
@@ -117,7 +128,6 @@ class NotificationStore extends ChangeNotifier {
     }
   }
 
-  /// Single entry point for creating notifications (Firestore + optional banner).
   Future<void> createNotification({
     required String title,
     required String subtitle,
@@ -325,11 +335,11 @@ class NotificationStore extends ChangeNotifier {
   Future<void> clearAll() async {
     final ref = _notificationsRef();
     if (ref == null) return;
-    final snap = await ref.limit(100).get();
-    if (snap.docs.isEmpty) return;
+    final loaded = List<NotificationItem>.from(_items);
+    if (loaded.isEmpty) return;
     final batch = FirebaseFirestore.instance.batch();
-    for (final doc in snap.docs) {
-      batch.delete(doc.reference);
+    for (final n in loaded) {
+      batch.delete(ref.doc(n.id));
     }
     await batch.commit();
   }

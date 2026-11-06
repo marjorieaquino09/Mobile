@@ -27,6 +27,20 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
+class _MenuEntry {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget destination;
+
+  const _MenuEntry({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.destination,
+  });
+}
+
 class _ProfileScreenState extends State<ProfileScreen> {
   SariColors get sari => context.sari;
   ColorScheme get scheme => Theme.of(context).colorScheme;
@@ -64,10 +78,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         if (doc.exists && doc.data() != null) {
           final data = doc.data()!;
-          final firstName = (data['firstName'] ?? '').toString();
-          final lastName = (data['lastName'] ?? '').toString();
-          final fullName = '$firstName $lastName'.trim();
-          final photo = (data['photoUrl'] ?? '').toString();
+          
+          // Sinusuportahan na nito ang 'full_name', 'store_name', at 'profile_image' mula sa web
+          final fullName = (data['full_name'] ?? data['firstName'] ?? '').toString();
+          final store = (data['store_name'] ?? data['storeName'] ?? '').toString();
+          final photo = (data['profile_image'] ?? data['photoUrl'] ?? '').toString();
+          
           Uint8List? bytes;
           if (photo.startsWith('data:image')) {
             try {
@@ -77,12 +93,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           if (!mounted) return;
           setState(() {
-            _name =
-                fullName.isNotEmpty ? fullName : (widget.userName ?? 'User');
+            _name = fullName.isNotEmpty ? fullName : (widget.userName ?? 'User');
             _username = (data['username'] ?? '').toString().trim();
-            _storeName = (data['storeName'] ?? '').toString().trim().isNotEmpty
-                ? (data['storeName'] ?? 'My Store').toString()
-                : 'My Store';
+            _storeName = store.isNotEmpty ? store : 'My Store';
             _address = (data['address'] ?? '').toString();
             _email = (data['email'] ?? user.email ?? '').toString();
             _phone = (data['phone'] ?? '').toString();
@@ -134,7 +147,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Widget _avatar({double radius = 40}) {
+  Widget _avatar({double radius = 26}) {
     Widget avatar;
     if (_imageBytes != null) {
       avatar = CircleAvatar(
@@ -183,7 +196,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: sari.success.withValues(alpha: 0.45),
-                  width: 2.5,
+                  width: 2,
                 ),
               ),
               child: avatar,
@@ -192,7 +205,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               right: -2,
               bottom: -2,
               child: Container(
-                padding: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: sari.warning,
                   shape: BoxShape.circle,
@@ -203,7 +216,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 child: Icon(
                   Icons.camera_alt_rounded,
-                  size: 12,
+                  size: 10,
                   color: sari.onAccentAmber,
                 ),
               ),
@@ -217,8 +230,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final horizontal = width < 360 ? 14.0 : 20.0;
+    final horizontal = width < 360 ? 14.0 : 18.0;
     final l10n = context.l10n;
+
+    final contactRows = <Widget>[
+      if (_phone.isNotEmpty) _contactRow(Icons.phone_outlined, _phone),
+      if (_address.isNotEmpty)
+        _contactRow(Icons.location_on_outlined, _address, maxLines: 2),
+    ];
 
     return Scaffold(
       resizeToAvoidBottomInset: false,
@@ -233,17 +252,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
               physics: const AlwaysScrollableScrollPhysics(
                 parent: BouncingScrollPhysics(),
               ),
-              padding: EdgeInsets.fromLTRB(horizontal, 8, horizontal, 12),
+              padding: EdgeInsets.fromLTRB(horizontal, 6, horizontal, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
                     child: Text(
                       l10n.text('profileTitle'),
                       style: TextStyle(
                         color: scheme.onSurface,
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.2,
                       ),
@@ -252,11 +271,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   if (_loadError != null) ...[
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 10),
                       decoration: BoxDecoration(
                         color: sari.warning.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: sari.warning.withValues(alpha: 0.35),
                         ),
@@ -271,12 +290,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ],
 
-                  // ── Identity header (name, username, email, store — all
-                  // together at the top) ──────────────────────────────────
+                  // ── Compact identity card ───────────────────────────────
                   _glassCard(
                     child: _loading
                         ? Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 36),
+                            padding: const EdgeInsets.symmetric(vertical: 28),
                             child: Center(
                               child: CircularProgressIndicator(
                                 color: sari.success,
@@ -287,10 +305,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   _avatar(),
-                                  const SizedBox(width: 16),
+                                  const SizedBox(width: 14),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment:
@@ -298,136 +316,109 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       children: [
                                         Text(
                                           _name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             color: scheme.onSurface,
-                                            fontSize: 20,
+                                            fontSize: 16,
                                             fontWeight: FontWeight.bold,
                                             height: 1.2,
                                           ),
                                         ),
-                                        if (_username.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            '@$_username',
-                                            style: TextStyle(
-                                              color: sari.warning,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
+                                        const SizedBox(height: 3),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 4,
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          children: [
+                                            if (_username.isNotEmpty)
+                                              Text(
+                                                '@$_username',
+                                                style: TextStyle(
+                                                  color: sari.warning,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            if (_storeName.isNotEmpty)
+                                              _storeChip(_storeName),
+                                          ],
+                                        ),
                                         if (_email.isNotEmpty) ...[
-                                          const SizedBox(height: 6),
-                                          _headerInfoRow(
-                                            Icons.email_outlined,
+                                          const SizedBox(height: 5),
+                                          Text(
                                             _email,
-                                          ),
-                                        ],
-                                        if (_storeName.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          _headerInfoRow(
-                                            Icons.storefront_outlined,
-                                            _storeName,
-                                          ),
-                                        ],
-                                        if (_phone.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          _headerInfoRow(
-                                            Icons.phone_outlined,
-                                            _phone,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: sari.mutedText,
+                                              fontSize: 12,
+                                            ),
                                           ),
                                         ],
                                       ],
                                     ),
                                   ),
-                                  Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: _openEditProfile,
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 8,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: sari.warning,
-                                            width: 1.3,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.edit_outlined,
-                                              size: 15,
-                                              color: sari.warning,
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              l10n.text('edit'),
-                                              style: TextStyle(
-                                                color: sari.warning,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                                  const SizedBox(width: 8),
+                                  _editButton(l10n.text('edit')),
                                 ],
                               ),
-                              if (_address.isNotEmpty) ...[
+                              if (contactRows.isNotEmpty) ...[
                                 const SizedBox(height: 10),
-                                _headerInfoRow(
-                                  Icons.location_on_outlined,
-                                  _address,
+                                Divider(
+                                  color: sari.glassBorder,
+                                  height: 1,
+                                  thickness: 1,
                                 ),
+                                const SizedBox(height: 10),
+                                for (var i = 0; i < contactRows.length; i++) ...[
+                                  if (i > 0) const SizedBox(height: 8),
+                                  contactRows[i],
+                                ],
                               ],
                             ],
                           ),
                   ),
 
                   if (!_loading) ...[
+                    const SizedBox(height: 12),
                     const DashboardSection(),
                   ],
 
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 18),
                   Padding(
-                    padding: const EdgeInsets.only(left: 4, bottom: 10),
+                    padding: const EdgeInsets.only(left: 4, bottom: 8),
                     child: Text(
                       l10n.text('manage'),
                       style: TextStyle(
                         color: sari.faintText,
-                        fontSize: 12,
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.8,
                       ),
                     ),
                   ),
-                  _menuTile(
-                    Icons.receipt_long_rounded,
-                    l10n.text('orders'),
-                    l10n.text('ordersSubtitle'),
-                    const OrdersScreen(),
-                  ),
-                  _menuTile(
-                    Icons.assignment_outlined,
-                    l10n.text('creditUtang'),
-                    l10n.text('creditUtangSubtitle'),
-                    const CreditScreen(),
-                  ),
-                  _menuTile(
-                    Icons.settings_outlined,
-                    l10n.text('settings'),
-                    l10n.text('settingsMenuSubtitle'),
-                    const SettingsScreen(),
-                  ),
+                  _menuGroup([
+                    _MenuEntry(
+                      icon: Icons.receipt_long_rounded,
+                      title: l10n.text('orders'),
+                      subtitle: l10n.text('ordersSubtitle'),
+                      destination: const OrdersScreen(),
+                    ),
+                    _MenuEntry(
+                      icon: Icons.assignment_outlined,
+                      title: l10n.text('creditUtang'),
+                      subtitle: l10n.text('creditUtangSubtitle'),
+                      destination: const CreditScreen(),
+                    ),
+                    _MenuEntry(
+                      icon: Icons.settings_outlined,
+                      title: l10n.text('settings'),
+                      subtitle: l10n.text('settingsMenuSubtitle'),
+                      destination: const SettingsScreen(),
+                    ),
+                  ]),
                   const SizedBox(height: 90),
                 ],
               ),
@@ -440,10 +431,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _glassCard({
     required Widget child,
-    EdgeInsetsGeometry padding = const EdgeInsets.fromLTRB(16, 18, 16, 18),
+    EdgeInsetsGeometry padding = const EdgeInsets.all(12),
   }) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(20),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
         child: Container(
@@ -451,7 +442,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           padding: padding,
           decoration: BoxDecoration(
             color: sari.cardSurfaceStrong.withValues(alpha: 0.92),
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: sari.glassBorder,
               width: 1.2,
@@ -463,101 +454,169 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _headerInfoRow(IconData icon, String text) {
+  Widget _editButton(String tooltip) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _openEditProfile,
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: sari.warning, width: 1.3),
+            ),
+            child: Icon(
+              Icons.edit_outlined,
+              size: 16,
+              color: sari.warning,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _storeChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: sari.success.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.storefront_outlined, size: 13, color: sari.success),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: sari.success,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _contactRow(IconData icon, String text, {int maxLines = 1}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 13, color: sari.faintText),
-        const SizedBox(width: 6),
+        Icon(icon, size: 16, color: sari.mutedText),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
             text,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: sari.faintText,
-              fontSize: 12,
+              color: scheme.onSurface.withValues(alpha: 0.85),
+              fontSize: 13,
               height: 1.3,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
     );
   }
 
-  Widget _menuTile(
-    IconData icon,
-    String title,
-    String subtitle,
-    Widget destination,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => destination),
-            );
-            if (mounted) await _fetchUserData();
-          },
-          child: Ink(
-            decoration: BoxDecoration(
-              color: sari.cardSurfaceStrong.withValues(alpha: 0.90),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: sari.glassBorder,
-                width: 1,
+  Widget _menuGroup(List<_MenuEntry> entries) {
+    return Container(
+      decoration: BoxDecoration(
+        color: sari.cardSurfaceStrong.withValues(alpha: 0.90),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: sari.glassBorder,
+          width: 1,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Material(
+          color: Colors.transparent,
+          child: Column(
+            children: [
+              for (var i = 0; i < entries.length; i++) ...[
+                _menuRow(entries[i]),
+                if (i < entries.length - 1)
+                  Divider(
+                    color: sari.glassBorder.withValues(alpha: 0.6),
+                    height: 1,
+                    thickness: 1,
+                    indent: 62,
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _menuRow(_MenuEntry entry) {
+    return InkWell(
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => entry.destination),
+        );
+        if (mounted) await _fetchUserData();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: sari.success.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(10),
               ),
+              child: Icon(entry.icon, color: sari.success, size: 18),
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              child: Row(
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(9),
-                    decoration: BoxDecoration(
-                      color: sari.success.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(icon, color: sari.success, size: 20),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            color: sari.mutedText,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
+                  Text(
+                    entry.title,
+                    style: TextStyle(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
                     ),
                   ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: sari.warning,
-                    size: 22,
+                  const SizedBox(height: 2),
+                  Text(
+                    entry.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: sari.mutedText,
+                      fontSize: 11.5,
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: sari.warning,
+              size: 20,
+            ),
+          ],
         ),
       ),
     );

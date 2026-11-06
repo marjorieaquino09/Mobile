@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../models/cart_item.dart';
 import '../models/product.dart';
@@ -19,6 +21,56 @@ class CartStore extends ChangeNotifier {
   double get subtotal => _items.fold(0.0, (sum, item) => sum + item.totalPrice);
 
   bool get isEmpty => _items.isEmpty;
+
+  // ---------------------------------------------------------------------------
+  // Cloud sync: users/{uid}/cart/current  (binabasa ng web checkout.js)
+  // ---------------------------------------------------------------------------
+
+  void _syncToCloud() {
+    // ignore: discarded_futures
+    _writeCloud();
+  }
+
+  Future<void> _writeCloud() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null || uid.isEmpty) return;
+
+      final ref = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('cart')
+          .doc('current');
+
+      if (_items.isEmpty) {
+        await ref.delete();
+        return;
+      }
+
+      // Kinukuha ang data nang sabay-sabay bago ang unang await.
+      final payload = _items
+          .map((item) => <String, dynamic>{
+                'productId': item.product.id,
+                'barcode': item.product.barcode,
+                'name': item.product.name,
+                'price': item.product.price,
+                'quantity': item.quantity,
+                'imageUrl': item.product.imageUrl,
+                'skipInventory': item.skipInventory,
+              })
+          .toList();
+
+      await ref.set({
+        'items': payload,
+        'source': 'mobile',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('[CartStore] cloud sync failed: $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
 
   int quantityOf(String productId) {
     for (final item in _items) {
@@ -83,6 +135,7 @@ class CartStore extends ChangeNotifier {
       ));
     }
     notifyListeners();
+    _syncToCloud();
   }
 
   int _indexOf(String productId) {
@@ -100,6 +153,7 @@ class CartStore extends ChangeNotifier {
     if (quantity <= 0) {
       _items.removeAt(index);
       notifyListeners();
+      _syncToCloud();
       return;
     }
     final item = _items[index];
@@ -111,6 +165,7 @@ class CartStore extends ChangeNotifier {
     }
     _items[index] = item.copyWith(quantity: quantity);
     notifyListeners();
+    _syncToCloud();
   }
 
   void increment(String productId) {
@@ -133,12 +188,16 @@ class CartStore extends ChangeNotifier {
           : item.product.id;
       return key == productId || item.product.id == productId;
     });
-    if (_items.length != before) notifyListeners();
+    if (_items.length != before) {
+      notifyListeners();
+      _syncToCloud();
+    }
   }
 
   void clear() {
     if (_items.isEmpty) return;
     _items.clear();
     notifyListeners();
+    _syncToCloud();
   }
 }

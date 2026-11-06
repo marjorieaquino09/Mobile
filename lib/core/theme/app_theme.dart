@@ -538,8 +538,9 @@ class AppTheme {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected))
+          if (states.contains(WidgetState.selected)) {
             return AppColors.lightPrimary;
+          }
           return AppColors.lightMuted;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
@@ -551,8 +552,9 @@ class AppTheme {
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected))
+          if (states.contains(WidgetState.selected)) {
             return AppColors.lightPrimary;
+          }
           return Colors.transparent;
         }),
         shape: RoundedRectangleBorder(
@@ -561,8 +563,9 @@ class AppTheme {
       ),
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected))
+          if (states.contains(WidgetState.selected)) {
             return AppColors.lightPrimary;
+          }
           return AppColors.lightMuted;
         }),
       ),
@@ -767,8 +770,9 @@ class AppTheme {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected))
+          if (states.contains(WidgetState.selected)) {
             return AppColors.darkPrimary;
+          }
           return AppColors.darkMuted;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
@@ -780,8 +784,9 @@ class AppTheme {
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected))
+          if (states.contains(WidgetState.selected)) {
             return AppColors.darkPrimary;
+          }
           return Colors.transparent;
         }),
         shape: RoundedRectangleBorder(
@@ -790,8 +795,9 @@ class AppTheme {
       ),
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected))
+          if (states.contains(WidgetState.selected)) {
             return AppColors.darkPrimary;
+          }
           return AppColors.darkMuted;
         }),
       ),

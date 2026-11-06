@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/user_profile_store.dart';
@@ -31,15 +30,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _usernameController = TextEditingController();
   final _storeController = TextEditingController();
   final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
 
   final ImagePicker _picker = ImagePicker();
-  static final DateFormat _storageFormat = DateFormat('yyyy-MM-dd');
 
   String _photoDataUrl = '';
   Uint8List? _photoBytes;
-  DateTime? _birthDate;
   bool _loading = true;
   bool _saving = false;
 
@@ -61,8 +56,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _usernameController.dispose();
     _storeController.dispose();
     _emailController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
@@ -85,19 +78,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _lastNameController.text = (data['lastName'] ?? '').toString();
       _usernameController.text = (data['username'] ?? '').toString();
       _storeController.text = (data['storeName'] ?? '').toString();
-      _addressController.text = (data['address'] ?? '').toString();
-      _phoneController.text = (data['phone'] ?? '').toString();
       final storedEmail = (data['email'] ?? '').toString().trim();
       if (storedEmail.isNotEmpty) {
         _emailController.text = storedEmail;
-      }
-
-      final dobRaw = (data['dateOfBirth'] ?? '').toString().trim();
-      if (dobRaw.isNotEmpty) {
-        _birthDate = DateTime.tryParse(dobRaw) ??
-            (dobRaw.contains('/')
-                ? null
-                : DateTime.tryParse(dobRaw.replaceAll('/', '-')));
       }
 
       final photo = (data['photoUrl'] ?? '').toString();
@@ -219,43 +202,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
-  Future<void> _pickBirthDate() async {
-    final now = DateTime.now();
-    final latest = DateTime(now.year - 13, now.month, now.day);
-    final earliest = DateTime(now.year - 100, now.month, now.day);
-    final initial = _birthDate ?? DateTime(now.year - 18, now.month, now.day);
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial.isBefore(earliest)
-          ? earliest
-          : (initial.isAfter(latest) ? latest : initial),
-      firstDate: earliest,
-      lastDate: latest,
-      helpText: context.l10n.text('selectBirthday'),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: scheme.copyWith(
-              primary: sari.warning,
-              onPrimary: sari.onAccentAmber,
-              surface: sari.cardSurfaceStrong,
-              onSurface: scheme.onSurface,
-            ),
-            dialogTheme: DialogThemeData(
-              backgroundColor: sari.cardSurfaceStrong,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() => _birthDate = picked);
-    }
-  }
-
   String? _required(String? value, String label) {
     if (value == null || value.trim().isEmpty) {
       return context.l10n.text('requiredField', values: {'field': label});
@@ -273,16 +219,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
     final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
     if (!ok) return context.l10n.text('validEmail');
-    return null;
-  }
-
-  String? _validatePhone(String? value) {
-    final phone = (value ?? '').trim();
-    if (phone.isEmpty) return null;
-    final digits = phone.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 7 || digits.length > 15) {
-      return context.l10n.text('validPhone');
-    }
     return null;
   }
 
@@ -322,8 +258,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final lastName = _lastNameController.text.trim();
     final username = _usernameController.text.trim().toLowerCase();
     final storeName = _storeController.text.trim();
-    final address = _addressController.text.trim();
-    final phone = _phoneController.text.trim();
 
     const maxEncodedChars = 900 * 1024;
     if (_photoDataUrl.startsWith('data:image') &&
@@ -341,20 +275,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     setState(() => _saving = true);
     try {
+      // Hindi na kasama ang phone, address, at birthday. Dahil `merge: true`,
+      // mananatili ang dati nang naka-save na values sa database.
       final payload = <String, dynamic>{
         'firstName': firstName,
         'lastName': lastName,
         'username': username,
         'storeName': storeName,
         'email': email,
-        'address': address,
-        'phone': phone,
         'photoUrl': _photoDataUrl,
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      if (_birthDate != null) {
-        payload['dateOfBirth'] = _storageFormat.format(_birthDate!);
-      }
 
       final appL10n = context.l10n;
       final messenger = ScaffoldMessenger.maybeOf(context);
@@ -430,7 +361,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               : Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
                       child: Row(
                         children: [
                           IconButton(
@@ -451,16 +382,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               ),
                             ),
                           ),
-                          TextButton(
-                            onPressed: _saving ? null : _save,
-                            child: Text(
-                              context.l10n.text('save'),
-                              style: TextStyle(
-                                color: _saving ? sari.faintText : sari.warning,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
+                          // Para nasa gitna ang title (kapareho ng laki ng back button)
+                          const SizedBox(width: 48),
                         ],
                       ),
                     ),
@@ -469,153 +392,89 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         key: _formKey,
                         child: ListView(
                           padding: EdgeInsets.fromLTRB(
-                            16,
-                            4,
-                            16,
+                            18,
+                            8,
+                            18,
                             16 + bottomInset,
                           ),
                           keyboardDismissBehavior:
                               ScrollViewKeyboardDismissBehavior.onDrag,
                           children: [
-                            Center(
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: _saving ? null : _pickPhoto,
-                                  customBorder: const CircleBorder(),
-                                  child: Stack(
-                                    alignment: Alignment.bottomRight,
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 40,
-                                        backgroundColor: sari.fieldFill,
-                                        backgroundImage: _photoBytes != null
-                                            ? MemoryImage(_photoBytes!)
-                                            : null,
-                                        child: _photoBytes == null
-                                            ? (_photoDataUrl.isNotEmpty
-                                                ? ClipOval(
-                                                    child: ProductImage(
-                                                      imageUrl: _photoDataUrl,
-                                                      width: 80,
-                                                      height: 80,
-                                                      fit: BoxFit.cover,
-                                                    ),
-                                                  )
-                                                : Icon(Icons.person,
-                                                    size: 36,
-                                                    color: scheme.onSurface))
-                                            : null,
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(
-                                          color: sari.warning,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: sari.cardSurfaceStrong,
-                                            width: 2,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          Icons.camera_alt,
-                                          size: 14,
-                                          color: sari.onAccentAmber,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Center(
-                              child: Text(
-                                context.l10n.text('tapChangeProfilePhoto'),
-                                style: TextStyle(
-                                  color: sari.faintText,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            _sectionLabel(context.l10n.text('personalSection')),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            _photoPicker(),
+                            const SizedBox(height: 18),
+                            _sectionCard(
+                              title: context.l10n.text('personalSection'),
                               children: [
-                                Expanded(
-                                  child: _field(
-                                    context.l10n.text('firstName'),
-                                    _firstNameController,
-                                    validator: (v) => _required(
-                                        v, context.l10n.text('firstName')),
-                                    textCapitalization:
-                                        TextCapitalization.words,
-                                  ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: _field(
+                                        context.l10n.text('firstName'),
+                                        _firstNameController,
+                                        validator: (v) => _required(
+                                            v, context.l10n.text('firstName')),
+                                        textCapitalization:
+                                            TextCapitalization.words,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _field(
+                                        context.l10n.text('lastName'),
+                                        _lastNameController,
+                                        validator: (v) => _required(
+                                            v, context.l10n.text('lastName')),
+                                        textCapitalization:
+                                            TextCapitalization.words,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _field(
-                                    context.l10n.text('lastName'),
-                                    _lastNameController,
-                                    validator: (v) => _required(
-                                        v, context.l10n.text('lastName')),
-                                    textCapitalization:
-                                        TextCapitalization.words,
-                                  ),
+                                _field(
+                                  context.l10n.text('username'),
+                                  _usernameController,
+                                  hint: context
+                                      .l10n
+                                      .text('optionalUsernameHint'),
+                                  validator: _validateUsername,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[a-zA-Z0-9._]'),
+                                    ),
+                                    LengthLimitingTextInputFormatter(
+                                      _maxUsernameLength,
+                                    ),
+                                  ],
+                                  isLast: true,
                                 ),
                               ],
                             ),
-                            _field(
-                              context.l10n.text('username'),
-                              _usernameController,
-                              hint: context.l10n.text('optionalUsernameHint'),
-                              validator: _validateUsername,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.allow(
-                                  RegExp(r'[a-zA-Z0-9._]'),
+                            const SizedBox(height: 14),
+                            _sectionCard(
+                              title: context.l10n.text('storeContactSection'),
+                              children: [
+                                _field(
+                                  context.l10n.text('storeName'),
+                                  _storeController,
+                                  validator: (v) => _required(
+                                      v, context.l10n.text('storeName')),
+                                  textCapitalization:
+                                      TextCapitalization.words,
                                 ),
-                                LengthLimitingTextInputFormatter(
-                                  _maxUsernameLength,
+                                _field(
+                                  context.l10n.text('email'),
+                                  _emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  validator: _validateEmail,
+                                  isLast: true,
                                 ),
                               ],
                             ),
-                            _birthdayField(),
-                            const SizedBox(height: 8),
-                            _sectionLabel(
-                                context.l10n.text('storeContactSection')),
-                            _field(
-                              context.l10n.text('storeName'),
-                              _storeController,
-                              validator: (v) =>
-                                  _required(v, context.l10n.text('storeName')),
-                              textCapitalization: TextCapitalization.words,
-                            ),
-                            _field(
-                              context.l10n.text('email'),
-                              _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              validator: _validateEmail,
-                            ),
-                            _field(
-                              context.l10n.text('phone'),
-                              _phoneController,
-                              keyboardType: TextInputType.phone,
-                              hint: context.l10n.text('optional'),
-                              validator: _validatePhone,
-                            ),
-                            _field(
-                              context.l10n.text('address'),
-                              _addressController,
-                              maxLines: 2,
-                              validator: (v) =>
-                                  _required(v, context.l10n.text('address')),
-                              textCapitalization: TextCapitalization.sentences,
-                            ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 22),
                             SizedBox(
                               width: double.infinity,
-                              height: 52,
+                              height: 50,
                               child: ElevatedButton(
                                 onPressed: _saving ? null : _save,
                                 style: ElevatedButton.styleFrom(
@@ -623,8 +482,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   foregroundColor: sari.onAccentAmber,
                                   disabledBackgroundColor:
                                       sari.warning.withValues(alpha: 0.45),
+                                  elevation: 0,
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
+                                    borderRadius: BorderRadius.circular(28),
                                   ),
                                 ),
                                 child: _saving
@@ -641,15 +501,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                         style: TextStyle(
                                           color: sari.onAccentAmber,
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 16,
+                                          fontSize: 15.5,
                                         ),
                                       ),
                               ),
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                             SizedBox(
                               width: double.infinity,
-                              height: 48,
+                              height: 44,
                               child: TextButton(
                                 onPressed: _saving
                                     ? null
@@ -657,22 +517,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 style: TextButton.styleFrom(
                                   foregroundColor: sari.mutedText,
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
-                                    side: BorderSide(
-                                      color: sari.cardBorder,
-                                    ),
+                                    borderRadius: BorderRadius.circular(28),
                                   ),
                                 ),
                                 child: Text(
                                   context.l10n.text('cancel'),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w600,
-                                    fontSize: 15,
+                                    fontSize: 14.5,
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 8),
                           ],
                         ),
                       ),
@@ -684,62 +541,111 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  Widget _sectionLabel(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 10, top: 4),
-        child: Text(
-          text,
+  Widget _photoPicker() {
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _saving ? null : _pickPhoto,
+            customBorder: const CircleBorder(),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: sari.success.withValues(alpha: 0.45),
+                      width: 2,
+                    ),
+                  ),
+                  child: CircleAvatar(
+                    radius: 42,
+                    backgroundColor: sari.fieldFill,
+                    backgroundImage:
+                        _photoBytes != null ? MemoryImage(_photoBytes!) : null,
+                    child: _photoBytes == null
+                        ? (_photoDataUrl.isNotEmpty
+                            ? ClipOval(
+                                child: ProductImage(
+                                  imageUrl: _photoDataUrl,
+                                  width: 84,
+                                  height: 84,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : Icon(Icons.person,
+                                size: 38, color: scheme.onSurface))
+                        : null,
+                  ),
+                ),
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: sari.warning,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: sari.cardSurfaceStrong,
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.camera_alt_rounded,
+                      size: 14,
+                      color: sari.onAccentAmber,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          context.l10n.text('tapChangeProfilePhoto'),
           style: TextStyle(
             color: sari.faintText,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.7,
+            fontSize: 11.5,
           ),
         ),
-      );
+      ],
+    );
+  }
 
-  Widget _birthdayField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: _saving ? null : _pickBirthDate,
-          borderRadius: BorderRadius.circular(16),
-          child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: context.l10n.text('birthday'),
-              labelStyle: TextStyle(color: sari.mutedText),
-              filled: true,
-              fillColor: sari.fieldFill.withValues(alpha: 0.45),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-              suffixIcon: Icon(Icons.calendar_today_outlined,
-                  color: sari.faintText, size: 18),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: sari.success.withValues(alpha: 0.2),
-                ),
-              ),
-            ),
+  /// Card na may pamagat, para malinaw ang grupo ng mga field.
+  Widget _sectionCard({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: sari.cardSurfaceStrong.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: sari.cardBorder, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 12),
             child: Text(
-              _birthDate != null
-                  ? DateFormat(
-                      'MMM d, yyyy',
-                      Localizations.localeOf(context).languageCode,
-                    ).format(_birthDate!)
-                  : context.l10n.text('selectBirthday'),
+              title.toUpperCase(),
               style: TextStyle(
-                color: _birthDate != null ? scheme.onSurface : sari.faintText,
-                fontSize: 15,
+                color: sari.faintText,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
               ),
             ),
           ),
-        ),
+          ...children,
+        ],
       ),
     );
   }
@@ -748,57 +654,55 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     String label,
     TextEditingController controller, {
     TextInputType? keyboardType,
-    int maxLines = 1,
     String? hint,
     String? Function(String?)? validator,
     TextCapitalization textCapitalization = TextCapitalization.none,
     List<TextInputFormatter>? inputFormatters,
+    bool isLast = false,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
       child: TextFormField(
         controller: controller,
         keyboardType: keyboardType,
-        maxLines: maxLines,
         validator: validator,
         enabled: !_saving,
         textCapitalization: textCapitalization,
         inputFormatters: inputFormatters,
-        style: TextStyle(color: scheme.onSurface),
+        style: TextStyle(color: scheme.onSurface, fontSize: 14.5),
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
-          labelStyle: TextStyle(color: sari.mutedText),
+          labelStyle: TextStyle(color: sari.mutedText, fontSize: 14),
           hintStyle: TextStyle(color: sari.faintText, fontSize: 13),
-          errorStyle: TextStyle(color: sari.warning),
+          errorStyle: TextStyle(color: sari.warning, fontSize: 11.5),
           filled: true,
           fillColor: sari.fieldFill.withValues(alpha: 0.45),
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          isDense: true,
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide.none,
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(
               color: sari.success.withValues(alpha: 0.2),
             ),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(
               color: sari.warning,
               width: 1.2,
             ),
           ),
           errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(color: sari.danger),
           ),
           focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(color: sari.danger, width: 1.2),
           ),
         ),

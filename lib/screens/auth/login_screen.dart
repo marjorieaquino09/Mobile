@@ -1,3 +1,4 @@
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -37,7 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
 
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const MainShell()),
+          MaterialPageRoute(
+            builder: (_) => const MainShell(),
+          ),
         );
       });
     }
@@ -53,10 +56,13 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     final l10n = context.l10n;
     final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+    final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      AppSnackbar.showError(context, l10n.text('loginEnterCredentials'));
+      AppSnackbar.showError(
+        context,
+        l10n.text('loginEnterCredentials'),
+      );
       return;
     }
 
@@ -72,13 +78,18 @@ class _LoginScreenState extends State<LoginScreen> {
       await NotificationStore.instance.reloadForCurrentUser();
 
       try {
-        await PushNotificationService.instance.bindTokenToCurrentUser();
-      } catch (_) {}
+        await PushNotificationService.instance
+            .bindTokenToCurrentUser();
+      } catch (_) {
+        // Push notification setup should not block login.
+      }
 
       if (!mounted) return;
 
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainShell()),
+        MaterialPageRoute(
+          builder: (_) => const MainShell(),
+        ),
       );
     } on FirebaseAuthException catch (e) {
       String message = l10n.text('loginFailed');
@@ -91,13 +102,21 @@ class _LoginScreenState extends State<LoginScreen> {
         message = l10n.text('loginInvalidCredentials');
       } else if (e.code == 'invalid-email') {
         message = l10n.text('resetInvalidEmail');
+      } else if (e.code == 'too-many-requests') {
+        message = 'Too many attempts. Please try again later.';
       }
 
+      if (!mounted) return;
       AppSnackbar.showError(context, message);
     } catch (e) {
+      if (!mounted) return;
+
       AppSnackbar.showError(
         context,
-        l10n.text('loginGenericError', values: {'error': '$e'}),
+        l10n.text(
+          'loginGenericError',
+          values: {'error': '$e'},
+        ),
       );
     } finally {
       if (mounted) {
@@ -118,168 +137,223 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final minContentHeight =
-                constraints.maxHeight > 40 ? constraints.maxHeight - 40 : 0.0;
+            final minHeight =
+                (constraints.maxHeight - 32).clamp(0.0, double.infinity);
 
             return SingleChildScrollView(
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.onDrag,
               padding: const EdgeInsets.symmetric(
                 horizontal: 24,
                 vertical: 20,
               ),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: minContentHeight),
+                constraints: BoxConstraints(
+                  minHeight: minHeight,
+                ),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 440),
+                    constraints: const BoxConstraints(
+                      maxWidth: 440,
+                    ),
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // SARI BRAND
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(19),
                               child: Image.asset(
                                 'assets/logo.jpg',
-                                width: 48,
-                                height: 48,
+                                width: 60,
+                                height: 60,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
+                                errorBuilder: (
+                                  context,
+                                  error,
+                                  stackTrace,
+                                ) {
                                   return Container(
-                                    width: 48,
-                                    height: 48,
+                                    width: 60,
+                                    height: 60,
                                     decoration: BoxDecoration(
                                       color: scheme.primary.withValues(
-                                        alpha: 0.12,
+                                        alpha: 0.14,
                                       ),
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius:
+                                          BorderRadius.circular(19),
                                     ),
                                     child: Icon(
-                                      Icons.storefront_rounded,
+                                      Icons.eco_rounded,
                                       color: scheme.primary,
-                                      size: 26,
+                                      size: 32,
                                     ),
                                   );
                                 },
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 15),
                             Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   'Sari',
                                   style: GoogleFonts.outfit(
                                     color: scheme.onSurface,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: 23,
+                                    fontWeight: FontWeight.w800,
                                     height: 1.1,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
+                                const SizedBox(height: 5),
                                 Text(
                                   'STORE MANAGEMENT',
                                   style: GoogleFonts.outfit(
                                     color: sari.mutedText,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 1.1,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.2,
                                   ),
                                 ),
                               ],
                             ),
                           ],
                         ),
-                        const SizedBox(height: 28),
+
+                        const SizedBox(height: 34),
+
+                        // WELCOME
                         Text(
                           'Welcome back',
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
                             color: scheme.onSurface,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 36,
+                            fontWeight: FontWeight.w800,
                             height: 1.12,
-                            letterSpacing: -0.6,
+                            letterSpacing: -0.8,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 9),
                         Text(
                           'Sign in to your store account',
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
                             color: sari.mutedText,
-                            fontSize: 15,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w400,
                             height: 1.4,
                           ),
                         ),
-                        const SizedBox(height: 24),
+
+                        const SizedBox(height: 30),
+
+                        // LOGIN CARD
                         Container(
-                          padding: const EdgeInsets.all(20),
+                          padding: const EdgeInsets.fromLTRB(
+                            24,
+                            24,
+                            24,
+                            25,
+                          ),
                           decoration: BoxDecoration(
                             color: sari.authCardSurface,
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: sari.authBorder),
+                            borderRadius: BorderRadius.circular(30),
+                            border: Border.all(
+                              color: sari.authBorder,
+                              width: 1.2,
+                            ),
                             boxShadow: [
                               BoxShadow(
                                 color: sari.shadow,
-                                blurRadius: 24,
-                                offset: const Offset(0, 10),
+                                blurRadius: 26,
+                                offset: const Offset(0, 12),
                               ),
                             ],
                           ),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            crossAxisAlignment:
+                                CrossAxisAlignment.stretch,
                             children: [
                               _LoginFieldLabel(
                                 label: 'EMAIL ADDRESS',
                                 color: sari.mutedText,
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 10),
+
                               AppTextField(
                                 controller: _emailController,
                                 hintText: 'you@example.com',
-                                prefixIcon: Icons.mail_outline_rounded,
-                                keyboardType: TextInputType.emailAddress,
+                                prefixIcon:
+                                    Icons.mail_outline_rounded,
+                                keyboardType:
+                                    TextInputType.emailAddress,
                               ),
-                              const SizedBox(height: 18),
+
+                              const SizedBox(height: 23),
+
                               _LoginFieldLabel(
                                 label: 'PASSWORD',
                                 color: sari.mutedText,
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 10),
+
                               AppTextField(
                                 controller: _passwordController,
                                 hintText: 'Enter your password',
-                                prefixIcon: Icons.lock_outline_rounded,
+                                prefixIcon:
+                                    Icons.lock_outline_rounded,
                                 obscureText: true,
                               ),
-                              const SizedBox(height: 10),
+
+                              const SizedBox(height: 12),
+
+                              // REMEMBER ME / FORGOT PASSWORD
                               Row(
                                 children: [
-                                  Checkbox(
-                                    value: _rememberMe,
-                                    onChanged: (value) => setState(
-                                      () => _rememberMe = value ?? false,
-                                    ),
-                                    activeColor: scheme.primary,
-                                    checkColor: scheme.onPrimary,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(5),
+                                  SizedBox(
+                                    width: 32,
+                                    height: 42,
+                                    child: Checkbox(
+                                      value: _rememberMe,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _rememberMe = value ?? false;
+                                        });
+                                      },
+                                      activeColor: scheme.primary,
+                                      checkColor: scheme.onPrimary,
+                                      side: BorderSide(
+                                        color: sari.mutedText,
+                                        width: 1.4,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(5),
+                                      ),
+                                      materialTapTargetSize:
+                                          MaterialTapTargetSize
+                                              .shrinkWrap,
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
+                                  const SizedBox(width: 9),
                                   Expanded(
                                     child: GestureDetector(
-                                      onTap: () => setState(
-                                        () => _rememberMe = !_rememberMe,
-                                      ),
+                                      onTap: () {
+                                        setState(() {
+                                          _rememberMe = !_rememberMe;
+                                        });
+                                      },
                                       child: Text(
                                         'Remember me',
                                         style: GoogleFonts.outfit(
                                           color: scheme.onSurface,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ),
@@ -288,65 +362,87 @@ class _LoginScreenState extends State<LoginScreen> {
                                     onPressed: () {
                                       Navigator.of(context).push(
                                         MaterialPageRoute(
-                                          builder: (_) => ForgotPasswordScreen(
+                                          builder: (_) =>
+                                              ForgotPasswordScreen(
                                             initialEmail:
-                                                _emailController.text.trim(),
+                                                _emailController.text
+                                                    .trim(),
                                           ),
                                         ),
                                       );
                                     },
                                     style: TextButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      minimumSize: const Size(0, 48),
+                                      padding: const EdgeInsets
+                                          .symmetric(horizontal: 2),
+                                      minimumSize:
+                                          const Size(0, 44),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize
+                                              .shrinkWrap,
                                     ),
                                     child: Text(
                                       'Forgot password?',
                                       style: GoogleFonts.outfit(
                                         color: scheme.primary,
                                         fontSize: 13,
-                                        fontWeight: FontWeight.w600,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 18),
+
+                              const SizedBox(height: 20),
+
                               PrimaryButton(
                                 label: 'Sign In',
+                                height: 62,
                                 isLoading: _isLoading,
                                 onPressed: _login,
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 22),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+
+                        const SizedBox(height: 23),
+
+                        // SIGNUP FOOTER
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment:
+                              WrapCrossAlignment.center,
+                          spacing: 5,
                           children: [
                             Text(
                               'New to Sari?',
                               style: GoogleFonts.outfit(
                                 color: sari.mutedText,
-                                fontSize: 14,
+                                fontSize: 15,
                               ),
                             ),
-                            const SizedBox(width: 6),
                             TextButton(
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const SignupScreen(),
-                                ),
-                              ),
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const SignupScreen(),
+                                  ),
+                                );
+                              },
                               style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(0, 48),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 2,
+                                ),
+                                minimumSize: const Size(0, 44),
+                                tapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
                               ),
                               child: Text(
                                 'Create an account',
                                 style: GoogleFonts.outfit(
                                   color: scheme.primary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
@@ -380,9 +476,9 @@ class _LoginFieldLabel extends StatelessWidget {
       label,
       style: GoogleFonts.outfit(
         color: color,
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.8,
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.9,
       ),
     );
   }

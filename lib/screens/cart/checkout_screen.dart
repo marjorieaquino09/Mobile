@@ -219,11 +219,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           );
         },
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[Checkout] error: $e');
+      debugPrint('[Checkout] stack: $st');
       if (!mounted) return;
+      final msg = e.toString().replaceFirst('Bad state: ', '');
       AppSnackbar.showError(
         context,
-        context.l10n.text('checkoutFailed', values: {'error': '$e'}),
+        context.l10n.text('checkoutFailed', values: {'error': msg}),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -456,15 +459,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                     const SizedBox(height: 12),
                     _paymentOption('Cash', Icons.payments_outlined),
-                    _paymentOption(
-                        'Credit / Utang', Icons.assignment_outlined),
+                    _paymentOption('Credit / Utang', Icons.assignment_outlined),
                   ],
                 ),
               ),
               PrimaryButton(
-                label: isCredit
-                    ? 'Save Utang & View List'
-                    : 'Complete Order',
+                label: isCredit ? 'Save Utang & View List' : 'Complete Order',
                 isLoading: _saving,
                 onPressed: _confirmOrder,
               ),

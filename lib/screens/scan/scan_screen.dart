@@ -16,6 +16,24 @@ import '../cart/cart_screen.dart';
 
 enum _ScanAction { choose, addInventory, checkout }
 
+/// Mga pagpipiliang category sa dropdown. Palitan kung may sariling listahan.
+const List<String> kProductCategories = [
+  'Beverages',
+  'Snacks',
+  'Candy & Sweets',
+  'Canned Goods',
+  'Instant Noodles',
+  'Condiments & Sauces',
+  'Rice & Grains',
+  'Dairy & Eggs',
+  'Bread & Bakery',
+  'Frozen',
+  'Personal Care',
+  'Household & Cleaning',
+  'Cigarettes',
+  'Others',
+];
+
 class ScanScreen extends StatefulWidget {
   final String? scannedBarcode;
   final bool showBackButton;
@@ -672,18 +690,25 @@ class _ScanResultCardState extends State<_ScanResultCard> {
   final ScanService _scanService = ScanService();
   final ImagePicker _picker = ImagePicker();
 
+  // Sariling state ng card. Hindi na umaasa sa parent para mag-rebuild ang
+  // bottom sheet, kaya gumagana na ang "Add to Inventory" button.
+  late _ScanAction _action;
+
   int _quantity = 1;
   bool _saving = false;
   String _imageUrl = '';
 
+  // Napiling category mula sa dropdown (null = wala pang napili).
+  String? _category;
+
   final _nameController = TextEditingController();
-  final _categoryController = TextEditingController();
   final _priceController = TextEditingController();
   final _stockController = TextEditingController(text: '1');
 
   @override
   void initState() {
     super.initState();
+    _action = widget.action;
     _hydrateFromProduct();
   }
 
@@ -696,10 +721,15 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     }
   }
 
+  void _setAction(_ScanAction a) {
+    setState(() => _action = a);
+    widget.onActionChanged(a);
+  }
+
   void _hydrateFromProduct() {
     final p = widget.product ?? widget.catalogSuggestion;
     _nameController.text = p?.name ?? '';
-    _categoryController.text = p?.category ?? '';
+    _category = (p != null && p.category.isNotEmpty) ? p.category : null;
     _priceController.text = p != null ? p.price.toStringAsFixed(2) : '';
     _stockController.text = '1';
     _imageUrl = p?.imageUrl ?? '';
@@ -711,7 +741,6 @@ class _ScanResultCardState extends State<_ScanResultCard> {
   @override
   void dispose() {
     _nameController.dispose();
-    _categoryController.dispose();
     _priceController.dispose();
     _stockController.dispose();
     super.dispose();
@@ -827,9 +856,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     final result = await _scanService.addToInventory(
       barcode: widget.scannedCode,
       name: name,
-      category: _categoryController.text.trim().isEmpty
-          ? 'Uncategorized'
-          : _categoryController.text.trim(),
+      category: _category ?? 'Uncategorized',
       price: price,
       quantity: qty,
       imageUrl: _imageUrl,
@@ -868,7 +895,6 @@ class _ScanResultCardState extends State<_ScanResultCard> {
       values: {'suffix': suffix},
     );
     final nameController = TextEditingController(text: fallbackItemName);
-    var saveToInventory = false;
 
     final ok = await showModalBottomSheet<bool>(
       context: context,
@@ -886,69 +912,51 @@ class _ScanResultCardState extends State<_ScanResultCard> {
               color: sari.cardSurfaceStrong,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: StatefulBuilder(
-              builder: (context, setLocal) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      context.l10n.text('quickAddToCart'),
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: priceController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      style: TextStyle(color: scheme.onSurface),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: scheme.surfaceContainerHighest,
-                        labelText: context.l10n.text('priceRequired'),
-                        prefixText: '₱ ',
-                        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: nameController,
-                      style: TextStyle(color: scheme.onSurface),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: scheme.surfaceContainerHighest,
-                        labelText: context.l10n.text('nameOptional'),
-                        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
-                      ),
-                    ),
-                    CheckboxListTile(
-                      value: saveToInventory,
-                      onChanged: (v) =>
-                          setLocal(() => saveToInventory = v ?? false),
-                      title: Text(
-                        context.l10n.text('alsoSaveInventory'),
-                        style: TextStyle(
-                          color: sari.mutedText,
-                          fontSize: 13,
-                        ),
-                      ),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      activeColor: sari.warning,
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: Text(context.l10n.text('addToCart')),
-                      ),
-                    ),
-                  ],
-                );
-              },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.l10n.text('quickAddToCart'),
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: priceController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: TextStyle(color: scheme.onSurface),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: scheme.surfaceContainerHighest,
+                    labelText: context.l10n.text('priceRequired'),
+                    prefixText: '₱ ',
+                    labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: nameController,
+                  style: TextStyle(color: scheme.onSurface),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: scheme.surfaceContainerHighest,
+                    labelText: context.l10n.text('nameOptional'),
+                    labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: Text(context.l10n.text('addToCart')),
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -962,13 +970,6 @@ class _ScanResultCardState extends State<_ScanResultCard> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.l10n.text('enterValidPrice'))),
       );
-      return;
-    }
-
-    if (saveToInventory) {
-      widget.onActionChanged(_ScanAction.addInventory);
-      _nameController.text = nameController.text.trim();
-      _priceController.text = price.toStringAsFixed(2);
       return;
     }
 
@@ -1001,7 +1002,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
   Widget build(BuildContext context) {
     final product = widget.product;
     final maxHeight = MediaQuery.of(context).size.height *
-        (widget.action == _ScanAction.choose ? 0.30 : 0.65);
+        (_action == _ScanAction.choose ? 0.30 : 0.78);
 
     return Container(
       constraints: BoxConstraints(maxHeight: maxHeight),
@@ -1035,7 +1036,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
             ),
             _buildHeader(product),
             const SizedBox(height: 14),
-            if (widget.action == _ScanAction.choose) ...[
+            if (_action == _ScanAction.choose) ...[
               Text(
                 context.l10n.text('newItemChoicePrompt'),
                 style: TextStyle(
@@ -1048,8 +1049,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () =>
-                          widget.onActionChanged(_ScanAction.addInventory),
+                      onPressed: () => _setAction(_ScanAction.addInventory),
                       icon: const Icon(Icons.inventory_2_outlined, size: 18),
                       label: Text(
                         context.l10n.text('addToInventory'),
@@ -1072,7 +1072,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                     child: ElevatedButton.icon(
                       onPressed: product == null
                           ? _showQuickCartEntry
-                          : () => widget.onActionChanged(_ScanAction.checkout),
+                          : () => _setAction(_ScanAction.checkout),
                       icon: Icon(Icons.shopping_cart,
                           size: 18, color: sari.onAccent),
                       label: Text(
@@ -1093,7 +1093,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                   ),
                 ],
               ),
-            ] else if (widget.action == _ScanAction.addInventory) ...[
+            ] else if (_action == _ScanAction.addInventory) ...[
               _buildInventoryForm(product),
             ] else ...[
               _buildCheckoutForm(product!),
@@ -1190,48 +1190,224 @@ class _ScanResultCardState extends State<_ScanResultCard> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Inventory form helpers
+  // ---------------------------------------------------------------------------
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    IconData? icon,
+    String? prefixText,
+  }) {
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: BorderSide(color: sari.cardBorder),
+    );
+    return InputDecoration(
+      labelText: label,
+      prefixText: prefixText,
+      prefixStyle: TextStyle(color: scheme.onSurface),
+      prefixIcon:
+          icon != null ? Icon(icon, size: 20, color: sari.mutedText) : null,
+      filled: true,
+      fillColor: sari.fieldFill.withValues(alpha: 0.5),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      labelStyle: TextStyle(color: sari.mutedText, fontSize: 14),
+      floatingLabelStyle:
+          TextStyle(color: sari.success, fontWeight: FontWeight.w600),
+      border: border,
+      enabledBorder: border,
+      focusedBorder: border.copyWith(
+        borderSide: BorderSide(color: sari.success, width: 1.6),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8, top: 4),
+      child: Text(
+        text.toUpperCase(),
+        style: TextStyle(
+          color: sari.faintText,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryDropdown() {
+    // Kung ang category ng existing product ay wala sa listahan, isama pa rin
+    // para hindi mag-crash ang dropdown.
+    final options = <String>[
+      ...kProductCategories,
+      if (_category != null && !kProductCategories.contains(_category))
+        _category!,
+    ];
+
+    return DropdownButtonFormField<String>(
+      value: _category,
+      isExpanded: true,
+      dropdownColor: sari.cardSurfaceStrong,
+      borderRadius: BorderRadius.circular(14),
+      menuMaxHeight: 320,
+      icon: Icon(Icons.keyboard_arrow_down_rounded, color: sari.mutedText),
+      style: TextStyle(color: scheme.onSurface, fontSize: 16),
+      decoration: _fieldDecoration(
+        label: context.l10n.text('category'),
+        icon: Icons.category_outlined,
+      ),
+      items: options
+          .map(
+            (c) => DropdownMenuItem<String>(
+              value: c,
+              child: Text(c, overflow: TextOverflow.ellipsis),
+            ),
+          )
+          .toList(),
+      onChanged: _saving ? null : (v) => setState(() => _category = v),
+    );
+  }
+
   Widget _buildInventoryForm(Product? product) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextButton.icon(
-          onPressed: () => widget.onActionChanged(_ScanAction.choose),
-          icon: const Icon(Icons.arrow_back, size: 16),
-          label: Text(context.l10n.text('back')),
-          style: TextButton.styleFrom(foregroundColor: sari.success),
+        // Back + barcode chip
+        Row(
+          children: [
+            InkWell(
+              onTap: () => _setAction(_ScanAction.choose),
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: sari.fieldFill.withValues(alpha: 0.6),
+                  shape: BoxShape.circle,
+                ),
+                child:
+                    Icon(Icons.arrow_back, size: 18, color: scheme.onSurface),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: sari.success.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border:
+                      Border.all(color: sari.success.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.qr_code_2_rounded,
+                        size: 18, color: sari.success),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.scannedCode,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: sari.success,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
-        Text(
-          context.l10n.text(
-            'barcodePrefix',
-            values: {'barcode': widget.scannedCode},
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.only(left: 2),
+          child: Text(
+            context.l10n.text('autoFilledFromScan'),
+            style: TextStyle(color: sari.faintText, fontSize: 11),
           ),
-          style: TextStyle(
-            color: sari.success,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          context.l10n.text('autoFilledFromScan'),
-          style: TextStyle(color: sari.faintText, fontSize: 11),
+        const SizedBox(height: 16),
+
+        // Product photo
+        _sectionLabel('Photo'),
+        Row(
+          children: [
+            InkWell(
+              onTap: _saving ? null : _pickImage,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: sari.fieldFill.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: sari.cardBorder),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: _imageUrl.isEmpty
+                    ? Icon(Icons.add_a_photo_outlined,
+                        color: sari.mutedText, size: 26)
+                    : ProductImage(
+                        imageUrl: _imageUrl,
+                        width: 76,
+                        height: 76,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _saving ? null : _pickImage,
+                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                label: Text(
+                  context.l10n.text(
+                    _imageUrl.isEmpty ? 'attachPicture' : 'changePicture',
+                  ),
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: sari.success,
+                  side: BorderSide(color: sari.success.withValues(alpha: 0.6)),
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
+
+        // Details
+        _sectionLabel('Details'),
         TextField(
           controller: _nameController,
+          textCapitalization: TextCapitalization.words,
+          textInputAction: TextInputAction.next,
           style: TextStyle(color: scheme.onSurface),
-          decoration: InputDecoration(
-            labelText: context.l10n.text('productName'),
+          decoration: _fieldDecoration(
+            label: context.l10n.text('productName'),
+            icon: Icons.sell_outlined,
           ),
         ),
-        TextField(
-          controller: _categoryController,
-          style: TextStyle(color: scheme.onSurface),
-          decoration: InputDecoration(
-            labelText: context.l10n.text('category'),
-          ),
-        ),
+        const SizedBox(height: 12),
+        _buildCategoryDropdown(),
+        const SizedBox(height: 16),
+
+        // Price & stock
+        _sectionLabel('Price & Stock'),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: TextField(
@@ -1239,8 +1415,10 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                 style: TextStyle(color: scheme.onSurface),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: context.l10n.text('price'),
+                textInputAction: TextInputAction.next,
+                decoration: _fieldDecoration(
+                  label: context.l10n.text('price'),
+                  prefixText: '₱ ',
                 ),
               ),
             ),
@@ -1250,63 +1428,36 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                 controller: _stockController,
                 style: TextStyle(color: scheme.onSurface),
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: product != null
+                textInputAction: TextInputAction.done,
+                decoration: _fieldDecoration(
+                  label: product != null
                       ? context.l10n.text('qtyToAdd')
                       : context.l10n.text('initialStock'),
+                  icon: Icons.inventory_2_outlined,
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: ProductImage(
-                imageUrl: _imageUrl,
-                width: 56,
-                height: 56,
-                fit: BoxFit.cover,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _saving ? null : _pickImage,
-                icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                label: Text(
-                  context.l10n.text(
-                    _imageUrl.isEmpty ? 'attachPicture' : 'changePicture',
-                  ),
-                  style: const TextStyle(fontSize: 13),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: sari.success,
-                  side: BorderSide(color: sari.success),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 20),
+
+        // Submit
         SizedBox(
           width: double.infinity,
-          child: ElevatedButton(
+          child: ElevatedButton.icon(
             onPressed: _saving ? null : _onSubmitInventory,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: sari.warning,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-            child: _saving
-                ? const SizedBox(
+            icon: _saving
+                ? const SizedBox.shrink()
+                : Icon(Icons.check_circle_outline,
+                    size: 20, color: sari.onAccent),
+            label: _saving
+                ? SizedBox(
                     height: 20,
                     width: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: sari.onAccent,
+                    ),
                   )
                 : Text(
                     context.l10n.text(
@@ -1317,8 +1468,16 @@ class _ScanResultCardState extends State<_ScanResultCard> {
                     style: TextStyle(
                       color: sari.onAccent,
                       fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
                   ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: sari.warning,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
           ),
         ),
       ],
@@ -1331,7 +1490,7 @@ class _ScanResultCardState extends State<_ScanResultCard> {
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            onPressed: () => widget.onActionChanged(_ScanAction.choose),
+            onPressed: () => _setAction(_ScanAction.choose),
             icon: const Icon(Icons.arrow_back, size: 16),
             label: Text(context.l10n.text('back')),
             style: TextButton.styleFrom(foregroundColor: sari.success),

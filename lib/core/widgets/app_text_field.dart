@@ -1,5 +1,7 @@
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
 import '../theme/app_theme.dart';
 
 class AppTextField extends StatefulWidget {
@@ -44,19 +46,28 @@ class _AppTextFieldState extends State<AppTextField> {
   }
 
   @override
+  void didUpdateWidget(covariant AppTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.obscureText != widget.obscureText) {
+      _isObscured = widget.obscureText;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final sari = context.sari;
-    final bool hasToggle = widget.obscureText;
+    final hasToggle = widget.obscureText;
 
     final field = TextField(
       controller: widget.controller,
       focusNode: widget.focusNode,
       keyboardType: widget.keyboardType,
       enabled: widget.enabled,
-      obscureText: hasToggle ? _isObscured : false,
-      maxLines: widget.obscureText ? 1 : widget.maxLines,
+      obscureText: hasToggle && _isObscured,
+      maxLines: hasToggle ? 1 : widget.maxLines,
       onChanged: widget.onChanged,
       style: GoogleFonts.outfit(
         color: scheme.onSurface,
@@ -72,67 +83,77 @@ class _AppTextFieldState extends State<AppTextField> {
         ),
         filled: true,
         fillColor: sari.fieldFill,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        prefixIcon: widget.prefixIcon != null
-            ? Icon(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 17,
+        ),
+        prefixIcon: widget.prefixIcon == null
+            ? null
+            : Icon(
                 widget.prefixIcon,
                 color: scheme.primary,
-                size: 20,
-              )
-            : null,
+                size: 21,
+              ),
         suffixIcon: hasToggle
             ? IconButton(
-                splashRadius: 18,
+                tooltip: _isObscured
+                    ? 'Show password'
+                    : 'Hide password',
                 onPressed: widget.enabled
-                    ? () => setState(() => _isObscured = !_isObscured)
+                    ? () => setState(
+                          () => _isObscured = !_isObscured,
+                        )
                     : null,
                 icon: Icon(
                   _isObscured
                       ? Icons.visibility_off_rounded
                       : Icons.visibility_rounded,
                   color: scheme.primary,
-                  size: 20,
+                  size: 21,
                 ),
               )
             : widget.suffix,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
+          borderRadius: BorderRadius.circular(32),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
+          borderRadius: BorderRadius.circular(32),
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
-          borderSide: BorderSide(color: scheme.primary, width: 1.4),
+          borderRadius: BorderRadius.circular(32),
+          borderSide: BorderSide(
+            color: scheme.primary,
+            width: 1.5,
+          ),
         ),
         disabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
+          borderRadius: BorderRadius.circular(32),
           borderSide: BorderSide.none,
         ),
       ),
     );
 
-    if (widget.labelText != null && widget.labelText!.isNotEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.labelText!,
-            style: GoogleFonts.outfit(
-              color: sari.mutedText,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          field,
-        ],
-      );
+    if (widget.labelText == null || widget.labelText!.isEmpty) {
+      return field;
     }
 
-    return field;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.labelText!,
+          style: GoogleFonts.outfit(
+            color: sari.mutedText,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.7,
+          ),
+        ),
+        const SizedBox(height: 8),
+        field,
+      ],
+    );
   }
 }

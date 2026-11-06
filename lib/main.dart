@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,11 +30,19 @@ void main() async {
     debugPrint("Firebase already initialized: $e");
   }
 
+  try {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
+  } catch (e) {
+    debugPrint('Firestore persistence skipped: $e');
+  }
+
   if (kIsWeb) {
     await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
   }
 
-  // Load persistent configurations before runApp to prevent theme/state flash
   await Future.wait([
     SettingsStore.instance.load(),
     NotificationStore.instance.load(),

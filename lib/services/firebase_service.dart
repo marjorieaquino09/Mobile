@@ -5,6 +5,14 @@ import 'package:flutter/foundation.dart';
 import '../models/product.dart';
 import 'product_repository.dart';
 
+class _InventoryDocMissing implements Exception {
+  _InventoryDocMissing(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class FirebaseService {
   FirebaseService({FirebaseFirestore? firestore, ProductRepository? products})
       : _db = firestore ?? FirebaseFirestore.instance,
@@ -38,6 +46,14 @@ class FirebaseService {
     } else {
       debugPrint('[FirebaseService] $message');
     }
+  }
+
+  Object _unwrapError(Object e) {
+    try {
+      final inner = (e as dynamic).error;
+      if (inner != null) return inner as Object;
+    } catch (_) {}
+    return e;
   }
 
   Future<Product?> getProductByBarcode(String barcode) {
@@ -82,7 +98,6 @@ class FirebaseService {
 
   Stream<List<Product>> watchProducts() => _products.watchProducts();
 
-  /// Seed removed — products must come from Firestore only.
   Future<void> initializeDefaultProducts(String userId) async {
     _log('initializeDefaultProducts skipped (seed disabled) for $userId');
   }
@@ -115,13 +130,38 @@ class FirebaseService {
     return _products.deleteProduct(product);
   }
 
+  Future<Map<String, String>> _resolveInventoryIds(
+    List<Map<String, dynamic>> items,
+  ) async {
+    final ids = <String, String>{};
+    for (final raw in items) {
+      if (raw['skipInventory'] == true) continue;
+      final barcode = (raw['barcode'] ?? raw['id'] ?? '').toString().trim();
+      if (barcode.isEmpty) continue;
+      String? catalogProductId =
+          (raw['catalogProductId'] ?? '').toString().trim();
+      if (catalogProductId.isEmpty) {
+        try {
+          catalogProductId =
+              (await _products.getCatalogProductByBarcode(barcode))?.id;
+        } catch (e) {
+          _log('catalog id resolve failed for $barcode', e);
+        }
+      }
+      ids[barcode] = await _products.inventoryDocumentIdForBarcode(
+        barcode,
+        catalogProductId: catalogProductId,
+      );
+    }
+    return ids;
+  }
+
   Future<String> checkoutOrder({
     required List<Map<String, dynamic>> items,
     required double totalAmount,
     required String paymentMethod,
     String customerName = '',
     String? userId,
-    /// When set, credit is written in the same transaction as the order/stock.
     Map<String, dynamic>? credit,
   }) async {
     if (items.isEmpty) {
@@ -135,173 +175,225 @@ class FirebaseService {
 
     _log('Starting checkout: ${items.length} lines, total=$totalAmount');
 
-    // Resolve inventory doc ids outside the transaction. Catalog templates are
-    // not sellable until the user has an inventory row with their own stock.
-    final inventoryIdsByBarcode = <String, String>{};
+    final fastIds = <String, String>{};
     for (final raw in items) {
       if (raw['skipInventory'] == true) continue;
       final barcode = (raw['barcode'] ?? raw['id'] ?? '').toString().trim();
       if (barcode.isEmpty) continue;
-      final requestedCatalogId =
-          (raw['catalogProductId'] ?? '').toString().trim();
-      String? catalogProductId = requestedCatalogId;
-      if (catalogProductId.isEmpty) {
-        try {
-          catalogProductId =
-              (await _products.getCatalogProductByBarcode(barcode))?.id;
-        } catch (e) {
-          _log('catalog id resolve failed for $barcode', e);
-        }
-      }
-      final docId = await _products.inventoryDocumentIdForBarcode(
-        barcode,
-        catalogProductId: catalogProductId,
-      );
-      inventoryIdsByBarcode[barcode] = docId;
+      fastIds[barcode] = ProductRepository.inventoryDocId(barcode: barcode);
     }
 
     try {
-      final orderId = await _db.runTransaction<String>((tx) async {
-        final stockDecrements = <String, int>{};
-        final resolvedItems = <Map<String, dynamic>>[];
+      final orderId = await _commitCheckout(
+        inv: inv,
+        items: items,
+        totalAmount: totalAmount,
+        paymentMethod: paymentMethod,
+        customerName: customerName,
+        userId: userId,
+        credit: credit,
+        inventoryIds: fastIds,
+      );
+      _log('Checkout OK orderId=$orderId');
+      return orderId;
+    } on _InventoryDocMissing catch (e) {
+      _log('fast path missed (${e.message}), resolving ids');
+      final resolved = await _resolveInventoryIds(items);
+      try {
+        final orderId = await _commitCheckout(
+          inv: inv,
+          items: items,
+          totalAmount: totalAmount,
+          paymentMethod: paymentMethod,
+          customerName: customerName,
+          userId: userId,
+          credit: credit,
+          inventoryIds: resolved,
+        );
+        _log('Checkout OK orderId=$orderId');
+        return orderId;
+      } on _InventoryDocMissing catch (second) {
+        throw StateError(second.message);
+      }
+    }
+  }
 
-        for (final raw in items) {
-          final barcode = (raw['barcode'] ?? raw['id'] ?? '').toString().trim();
-          final qty = (raw['quantity'] as num?)?.toInt() ?? 0;
-          if (barcode.isEmpty || qty <= 0) {
-            throw StateError('Invalid cart line: barcode/qty missing');
+  Future<String> _commitCheckout({
+    required CollectionReference<Map<String, dynamic>> inv,
+    required List<Map<String, dynamic>> items,
+    required double totalAmount,
+    required String paymentMethod,
+    required String customerName,
+    required String? userId,
+    required Map<String, dynamic>? credit,
+    required Map<String, String> inventoryIds,
+  }) async {
+    Object? innerError;
+    StackTrace? innerStack;
+
+    try {
+      return await _db.runTransaction<String>((tx) async {
+        try {
+          final qtyByDoc = <String, int>{};
+          final nameByDoc = <String, String>{};
+          final lines = <Map<String, dynamic>>[];
+
+          for (final raw in items) {
+            final barcode =
+                (raw['barcode'] ?? raw['id'] ?? '').toString().trim();
+            final qty = (raw['quantity'] as num?)?.toInt() ?? 0;
+            if (barcode.isEmpty || qty <= 0) {
+              throw StateError('Invalid cart line: barcode/qty missing');
+            }
+
+            final skipInventory = raw['skipInventory'] == true;
+            final name = (raw['name'] ?? barcode).toString();
+            final unitPrice = (raw['price'] as num?)?.toDouble() ?? 0;
+
+            if (skipInventory) {
+              lines.add({
+                'skip': true,
+                'barcode': barcode,
+                'name': name,
+                'price': unitPrice,
+                'quantity': qty,
+              });
+              continue;
+            }
+
+            final docId = inventoryIds[barcode] ??
+                ProductRepository.inventoryDocId(barcode: barcode);
+            qtyByDoc[docId] = (qtyByDoc[docId] ?? 0) + qty;
+            nameByDoc.putIfAbsent(docId, () => name);
+            lines.add({
+              'skip': false,
+              'docId': docId,
+              'barcode': barcode,
+              'name': name,
+              'price': raw['price'],
+              'quantity': qty,
+            });
           }
 
-          final skipInventory = raw['skipInventory'] == true;
-          final name = (raw['name'] ?? barcode).toString();
-          final unitPrice = (raw['price'] as num?)?.toDouble() ?? 0;
+          final dataByDoc = <String, Map<String, dynamic>>{};
+          for (final docId in qtyByDoc.keys) {
+            final snap = await tx.get(inv.doc(docId));
+            if (!snap.exists) {
+              final label = nameByDoc[docId] ?? docId;
+              throw _InventoryDocMissing(
+                'Add "$label" to your inventory and set stock before selling.',
+              );
+            }
+            final data = snap.data();
+            if (data == null || data['hidden'] == true) {
+              throw StateError('Item "$docId" is not available');
+            }
+            final parsed = Product.fromMap(docId, data);
+            final need = qtyByDoc[docId]!;
+            if (need > parsed.stock) {
+              throw StateError(
+                'Not enough stock for ${parsed.name} (have ${parsed.stock}, need $need)',
+              );
+            }
+            dataByDoc[docId] = data;
+          }
 
-          if (skipInventory) {
+          final resolvedItems = <Map<String, dynamic>>[];
+          for (final line in lines) {
+            final barcode = line['barcode'] as String;
+            final qty = line['quantity'] as int;
+
+            if (line['skip'] == true) {
+              final price = (line['price'] as double);
+              resolvedItems.add({
+                'barcode': barcode,
+                'id': barcode,
+                'name': line['name'],
+                'price': price,
+                'quantity': qty,
+                'subtotal': price * qty,
+                'skipInventory': true,
+              });
+              continue;
+            }
+
+            final docId = line['docId'] as String;
+            final data = dataByDoc[docId]!;
+            final parsed = Product.fromMap(docId, data);
+            final resolvedPrice = Product.fromMap(docId, {
+              'price': line['price'] ?? data['price'],
+            }).price;
             resolvedItems.add({
               'barcode': barcode,
               'id': barcode,
-              'name': name,
-              'price': unitPrice,
+              'name': parsed.name.isNotEmpty ? parsed.name : barcode,
+              'price': resolvedPrice,
               'quantity': qty,
-              'subtotal': unitPrice * qty,
-              'skipInventory': true,
+              'subtotal': resolvedPrice * qty,
             });
-            continue;
           }
 
-          final docId = inventoryIdsByBarcode[barcode] ??
-              ProductRepository.inventoryDocId(
-                barcode: barcode,
-                catalogProductId:
-                    (raw['catalogProductId'] ?? '').toString().trim(),
-              );
-          final invRef = inv.doc(docId);
-          final invSnap = await tx.get(invRef);
-
-          if (!invSnap.exists) {
-            throw StateError(
-              'Add "${name.isNotEmpty ? name : barcode}" to your inventory '
-              'and set stock before selling.',
-            );
-          }
-
-          final data = invSnap.data();
-          if (data == null || data['hidden'] == true) {
-            throw StateError('Item "$barcode" is not available');
-          }
-
-          final parsed = Product.fromMap(docId, data);
-          if (qty > parsed.stock) {
-            throw StateError(
-              'Not enough stock for ${parsed.name} (have ${parsed.stock}, need $qty)',
-            );
-          }
-
-          stockDecrements[docId] = (stockDecrements[docId] ?? 0) + qty;
-          final resolvedPrice = Product.fromMap(docId, {
-            'price': raw['price'] ?? data['price'],
-          }).price;
-          resolvedItems.add({
-            'barcode': barcode,
-            'id': barcode,
-            'name': parsed.name.isNotEmpty ? parsed.name : barcode,
-            'price': resolvedPrice,
-            'quantity': qty,
-            'subtotal': resolvedPrice * qty,
-          });
-        }
-
-        // Re-check aggregated qty against stock (duplicate barcodes in one cart).
-        for (final entry in stockDecrements.entries) {
-          final invSnap = await tx.get(inv.doc(entry.key));
-          final data = invSnap.data();
-          if (data == null) {
-            throw StateError('Item missing from inventory during checkout');
-          }
-          final have = Product.fromMap(entry.key, data).stock;
-          if (entry.value > have) {
-            throw StateError(
-              'Not enough stock for ${Product.fromMap(entry.key, data).name} '
-              '(have $have, need ${entry.value})',
-            );
-          }
-        }
-
-        final orderRef = _orders.doc();
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-        final resolvedUserId =
-            userId ?? FirebaseAuth.instance.currentUser?.uid ?? '';
-        tx.set(orderRef, {
-          'orderId': orderRef.id,
-          'items': resolvedItems,
-          'totalAmount': totalAmount,
-          'paymentMethod': paymentMethod,
-          'customerName': customerName,
-          'userId': resolvedUserId,
-          'status': 'completed',
-          'source': 'mobile_app',
-          'createdAtMs': nowMs,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        for (final entry in stockDecrements.entries) {
-          tx.set(
-            inv.doc(entry.key),
-            {
-              'stock': FieldValue.increment(-entry.value),
-              'hidden': false,
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          );
-        }
-
-        if (credit != null) {
-          final creditRef = _credits.doc();
-          tx.set(creditRef, {
-            'creditId': creditRef.id,
-            'userId': credit['userId'] ?? resolvedUserId,
-            'customerName': credit['customerName'] ?? customerName,
-            'amount': credit['amount'] ?? totalAmount,
-            'date': credit['date'] ?? '',
-            'isPaid': false,
-            'saleId': orderRef.id,
-            if (credit['items'] is List && (credit['items'] as List).isNotEmpty)
-              'items': credit['items'],
+          final orderRef = _orders.doc();
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          final resolvedUserId =
+              userId ?? FirebaseAuth.instance.currentUser?.uid ?? '';
+          tx.set(orderRef, {
+            'orderId': orderRef.id,
+            'items': resolvedItems,
+            'totalAmount': totalAmount,
+            'paymentMethod': paymentMethod,
+            'customerName': customerName,
+            'userId': resolvedUserId,
+            'status': 'completed',
+            'source': 'mobile_app',
+            'createdAtMs': nowMs,
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
+
+          for (final entry in qtyByDoc.entries) {
+            tx.set(
+              inv.doc(entry.key),
+              {
+                'stock': FieldValue.increment(-entry.value),
+                'hidden': false,
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true),
+            );
+          }
+
+          if (credit != null) {
+            final creditRef = _credits.doc();
+            tx.set(creditRef, {
+              'creditId': creditRef.id,
+              'userId': credit['userId'] ?? resolvedUserId,
+              'customerName': credit['customerName'] ?? customerName,
+              'amount': credit['amount'] ?? totalAmount,
+              'date': credit['date'] ?? '',
+              'isPaid': false,
+              'saleId': orderRef.id,
+              if (credit['items'] is List &&
+                  (credit['items'] as List).isNotEmpty)
+                'items': credit['items'],
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          }
+
+          return orderRef.id;
+        } catch (e, st) {
+          innerError = e;
+          innerStack = st;
+          rethrow;
         }
-
-        return orderRef.id;
       });
-
-      _log('Checkout OK orderId=$orderId');
-      return orderId;
     } catch (e, st) {
-      _log('checkoutOrder failed', e, st);
-      rethrow;
+      final real = innerError ?? _unwrapError(e);
+      if (real is! _InventoryDocMissing) {
+        _log('checkoutOrder failed', real, innerStack ?? st);
+      }
+      Error.throwWithStackTrace(real, innerStack ?? st);
     }
   }
 
@@ -326,7 +418,7 @@ class FirebaseService {
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    _log('Credit saved ${ref.id} for$customerName');
+    _log('Credit saved ${ref.id} for $customerName');
     return ref.id;
   }
 
@@ -341,8 +433,6 @@ class FirebaseService {
     });
   }
 
-  /// Orders for [userId] (defaults to the signed-in user).
-  /// Queries by userId without composite index so it works out-of-the-box.
   Stream<QuerySnapshot> getOrdersStream({
     String? userId,
     int limit = 50,
@@ -358,5 +448,4 @@ class FirebaseService {
         .limit(capped)
         .snapshots();
   }
-
 }
